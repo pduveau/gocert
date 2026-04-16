@@ -2,13 +2,15 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package x509
+package pkcs1_test
 
 import (
 	"bytes"
 	"encoding/hex"
 	"strings"
 	"testing"
+
+	"github.com/pduveau/gocert/pkcs1"
 )
 
 var ecKeyTests = []struct {
@@ -29,11 +31,11 @@ var ecKeyTests = []struct {
 func TestParseECPrivateKey(t *testing.T) {
 	for i, test := range ecKeyTests {
 		derBytes, _ := hex.DecodeString(test.derHex)
-		key, err := ParseECPrivateKey(derBytes)
+		key, err := pkcs1.ParseECPrivateKey(derBytes)
 		if err != nil {
 			t.Fatalf("#%d: failed to decode EC private key: %s", i, err)
 		}
-		serialized, err := MarshalECPrivateKey(key)
+		serialized, err := pkcs1.MarshalECPrivateKey(key)
 		if err != nil {
 			t.Fatalf("#%d: failed to encode EC private key: %s", i, err)
 		}
@@ -58,7 +60,7 @@ var ecMismatchKeyTests = []struct {
 func TestECMismatchKeyFormat(t *testing.T) {
 	for i, test := range ecMismatchKeyTests {
 		derBytes, _ := hex.DecodeString(test.hexKey)
-		_, err := ParseECPrivateKey(derBytes)
+		_, err := pkcs1.ParseECPrivateKey(derBytes)
 		if !strings.Contains(err.Error(), test.errorContains) {
 			t.Errorf("#%d: expected error containing %q, got %s", i, test.errorContains, err)
 		}

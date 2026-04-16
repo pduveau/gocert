@@ -7,18 +7,11 @@ import (
 	"fmt"
 
 	"github.com/pduveau/gocert/asn1"
+	"github.com/pduveau/gocert/oids"
 )
 
 // ErrDecryption represents a failure to decrypt the input.
 var ErrDecryption = fmt.Errorf("pkcs12: decryption error, incorrect padding")
-
-func (c CipherOID) Equal(d CipherOID) bool {
-	return c.ToAsn1().Equal(d.ToAsn1())
-}
-
-func (c CipherOID) ToAsn1() asn1.ObjectIdentifier {
-	return asn1.ObjectIdentifier(c)
-}
 
 type cipherWithBlock struct {
 	oid     asn1.ObjectIdentifier
@@ -96,25 +89,25 @@ type Cipher interface {
 	OID() asn1.ObjectIdentifier
 }
 
-func NewCipher(oid CipherOID) (Cipher, error) {
+func NewCipher(oid oids.CipherOID) (Cipher, error) {
 	a1oid := oid.ToAsn1()
 	switch {
 	// AES128CBC is the 128-bit key AES cipher in CBC mode.
-	case oid.Equal(OidAES128CBC):
+	case oid.Equal(oids.OidAES128CBC):
 		return &cipherWithBlock{
 			ivSize:  aes.BlockSize,
 			keySize: 16,
 			oid:     a1oid,
 		}, nil
 	// AES192CBC is the 192-bit key AES cipher in CBC mode.
-	case oid.Equal(OidAES192CBC):
+	case oid.Equal(oids.OidAES192CBC):
 		return &cipherWithBlock{
 			ivSize:  aes.BlockSize,
 			keySize: 24,
 			oid:     a1oid,
 		}, nil
 	// AES256CBC is the 256-bit key AES cipher in CBC mode.
-	case oid.Equal(OidAES256CBC):
+	case oid.Equal(oids.OidAES256CBC):
 		return &cipherWithBlock{
 			ivSize:  aes.BlockSize,
 			keySize: 32,
@@ -128,12 +121,12 @@ func NewDefaultCipher() *cipherWithBlock {
 	return &cipherWithBlock{
 		ivSize:  aes.BlockSize,
 		keySize: 32,
-		oid:     OidAES256CBC.ToAsn1(),
+		oid:     oids.OidAES256CBC.ToAsn1(),
 	}
 }
 
 func NewDefaultPBMAC1Cipher() *cipherWithBlock {
 	return &cipherWithBlock{
-		oid: OidHMACWithSHA256.ToAsn1(),
+		oid: oids.OidHMACWithSHA256.ToAsn1(),
 	}
 }

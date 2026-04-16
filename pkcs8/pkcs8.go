@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package x509
+package pkcs8
 
 import (
 	"crypto/ecdh"
@@ -12,19 +12,12 @@ import (
 	"fmt"
 
 	"github.com/pduveau/gocert/asn1"
+	"github.com/pduveau/gocert/internal/keys"
+	"github.com/pduveau/gocert/oids"
+	"github.com/pduveau/gocert/pkcs1"
 	"github.com/pduveau/gocert/pkcs5"
 	"github.com/pduveau/gocert/pkix"
 )
-
-// pkcs8 reflects an ASN.1, PKCS #8 PrivateKey. See
-// ftp://ftp.rsasecurity.com/pub/pkcs/pkcs-8/pkcs-8v1_2.asn
-// and RFC 5208.
-type pkcs8 struct {
-	Version    int
-	Algo       pkix.AlgorithmIdentifier
-	PrivateKey []byte
-	// optional attributes omitted.
-}
 
 type encryptedPrivateKeyInfo struct {
 	EncryptionAlgorithm pkix.AlgorithmIdentifier
@@ -42,37 +35,37 @@ type encryptedPrivateKeyInfo struct {
 // Before Go 1.24, the CRT parameters of RSA keys were ignored and recomputed.
 // To restore the old behavior, use the GODEBUG=x509rsacrt=0 environment variable.
 func ParsePKCS8PrivateKey(der []byte) (key any, err error) {
-	var privKey pkcs8
+	var privKey keys.Pkcs8
 	if _, err := asn1.Unmarshal(der, &privKey); err != nil {
-		if _, err := asn1.Unmarshal(der, &ecPrivateKey{}); err == nil {
+		if _, err := asn1.Unmarshal(der, &keys.EcPrivateKey{}); err == nil {
 			return nil, fmt.Errorf("x509: failed to parse private key (use ParseECPrivateKey instead for this key format)")
 		}
-		if _, err := asn1.Unmarshal(der, &pkcs1PrivateKey{}); err == nil {
+		if _, err := asn1.Unmarshal(der, &keys.Pkcs1PrivateKey{}); err == nil {
 			return nil, fmt.Errorf("x509: failed to parse private key (use ParsePKCS1PrivateKey instead for this key format)")
 		}
 		return nil, err
 	}
 	switch {
-	case privKey.Algo.Algorithm.Equal(oidPublicKeyRSA):
-		key, err = ParsePKCS1PrivateKey(privKey.PrivateKey)
+	case privKey.Algo.Algorithm.Equal(oids.OidPublicKeyRSA):
+		key, err = pkcs1.ParsePKCS1PrivateKey(privKey.PrivateKey)
 		if err != nil {
 			return nil, fmt.Errorf("x509: failed to parse RSA private key embedded in PKCS#8: %v", err)
 		}
 		return key, nil
 
-	case privKey.Algo.Algorithm.Equal(oidPublicKeyECDSA):
+	case privKey.Algo.Algorithm.Equal(oids.OidPublicKeyECDSA):
 		bytes := privKey.Algo.Parameters.FullBytes
 		namedCurveOID := new(asn1.ObjectIdentifier)
 		if _, err := asn1.Unmarshal(bytes, namedCurveOID); err != nil {
 			namedCurveOID = nil
 		}
-		key, err = parseECPrivateKey(namedCurveOID, privKey.PrivateKey)
+		key, err = keys.ParseECPrivateKey(namedCurveOID, privKey.PrivateKey)
 		if err != nil {
 			return nil, fmt.Errorf("x509: failed to parse EC private key embedded in PKCS#8: %v", err)
 		}
 		return key, nil
 
-	case privKey.Algo.Algorithm.Equal(oidPublicKeyEd25519):
+	case privKey.Algo.Algorithm.Equal(oids.OidPublicKeyEd25519):
 		if l := len(privKey.Algo.Parameters.FullBytes); l != 0 {
 			return nil, fmt.Errorf("x509: invalid Ed25519 private key parameters")
 		}
@@ -85,7 +78,7 @@ func ParsePKCS8PrivateKey(der []byte) (key any, err error) {
 		}
 		return ed25519.NewKeyFromSeed(curvePrivateKey), nil
 
-	case privKey.Algo.Algorithm.Equal(oidPublicKeyX25519):
+	case privKey.Algo.Algorithm.Equal(oids.OidPublicKeyX25519):
 		if l := len(privKey.Algo.Parameters.FullBytes); l != 0 {
 			return nil, fmt.Errorf("x509: invalid X25519 private key parameters")
 		}
@@ -127,22 +120,22 @@ func ParsePKCS8EncryptedPrivateKey(der, password []byte) (key any, kdf pkcs5.KDF
 //
 // MarshalPKCS8PrivateKey runs [rsa.PrivateKey.Precompute] on RSA keys.
 func MarshalPKCS8PrivateKey(key any) ([]byte, error) {
-	var privKey pkcs8
+	var privKey keys.Pkcs8
 
 	switch k := key.(type) {
 	case *rsa.PrivateKey:
 		privKey.Algo = pkix.AlgorithmIdentifier{
-			Algorithm:  oidPublicKeyRSA,
+			Algorithm:  oids.OidPublicKeyRSA,
 			Parameters: asn1.NullRawValue,
 		}
 		k.Precompute()
 		if err := k.Validate(); err != nil {
 			return nil, err
 		}
-		privKey.PrivateKey = MarshalPKCS1PrivateKey(k)
+		privKey.PrivateKey = pkcs1.MarshalPKCS1PrivateKey(k)
 
 	case *ecdsa.PrivateKey:
-		oid, ok := oidFromNamedCurve(k.Curve)
+		oid, ok := oids.OidFromNamedCurve(k.Curve)
 		if !ok {
 			return nil, fmt.Errorf("x509: unknown curve while marshaling to PKCS#8")
 		}
@@ -151,18 +144,18 @@ func MarshalPKCS8PrivateKey(key any) ([]byte, error) {
 			return nil, fmt.Errorf("x509: failed to marshal curve OID: %v", err)
 		}
 		privKey.Algo = pkix.AlgorithmIdentifier{
-			Algorithm: oidPublicKeyECDSA,
+			Algorithm: oids.OidPublicKeyECDSA,
 			Parameters: asn1.RawValue{
 				FullBytes: oidBytes,
 			},
 		}
-		if privKey.PrivateKey, err = marshalECPrivateKeyWithOID(k, nil); err != nil {
+		if privKey.PrivateKey, err = keys.MarshalECPrivateKeyWithOID(k, nil); err != nil {
 			return nil, fmt.Errorf("x509: failed to marshal EC private key while building PKCS#8: %v", err)
 		}
 
 	case ed25519.PrivateKey:
 		privKey.Algo = pkix.AlgorithmIdentifier{
-			Algorithm: oidPublicKeyEd25519,
+			Algorithm: oids.OidPublicKeyEd25519,
 		}
 		curvePrivateKey, err := asn1.Marshal(k.Seed())
 		if err != nil {
@@ -173,14 +166,14 @@ func MarshalPKCS8PrivateKey(key any) ([]byte, error) {
 	case *ecdh.PrivateKey:
 		if k.Curve() == ecdh.X25519() {
 			privKey.Algo = pkix.AlgorithmIdentifier{
-				Algorithm: oidPublicKeyX25519,
+				Algorithm: oids.OidPublicKeyX25519,
 			}
 			var err error
 			if privKey.PrivateKey, err = asn1.Marshal(k.Bytes()); err != nil {
 				return nil, fmt.Errorf("x509: failed to marshal private key: %v", err)
 			}
 		} else {
-			oid, ok := oidFromECDHCurve(k.Curve())
+			oid, ok := oids.OidFromECDHCurve(k.Curve())
 			if !ok {
 				return nil, fmt.Errorf("x509: unknown curve while marshaling to PKCS#8")
 			}
@@ -189,12 +182,12 @@ func MarshalPKCS8PrivateKey(key any) ([]byte, error) {
 				return nil, fmt.Errorf("x509: failed to marshal curve OID: %v", err)
 			}
 			privKey.Algo = pkix.AlgorithmIdentifier{
-				Algorithm: oidPublicKeyECDSA,
+				Algorithm: oids.OidPublicKeyECDSA,
 				Parameters: asn1.RawValue{
 					FullBytes: oidBytes,
 				},
 			}
-			if privKey.PrivateKey, err = marshalECDHPrivateKey(k); err != nil {
+			if privKey.PrivateKey, err = keys.MarshalECDHPrivateKey(k); err != nil {
 				return nil, fmt.Errorf("x509: failed to marshal EC private key while building PKCS#8: %v", err)
 			}
 		}

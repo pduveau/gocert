@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"testing"
 
+	"github.com/pduveau/gocert/oids"
 	"github.com/pduveau/gocert/x509"
 )
 
@@ -14,9 +15,9 @@ func TestEncrypt(t *testing.T) {
 		EncryptionAlgorithmAES128GCM,
 		EncryptionAlgorithmAES256GCM,
 	}
-	sigalgs := []x509.SignatureAlgorithm{
-		x509.RSAWithSHA256,
-		x509.RSAWithSHA512,
+	sigalgs := []oids.SignatureAlgorithm{
+		oids.RSAWithSHA256,
+		oids.RSAWithSHA512,
 	}
 	for _, mode := range modes {
 		for _, sigalg := range sigalgs {

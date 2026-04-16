@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package x509
+package pkcs1
 
 import (
 	"crypto/rsa"
@@ -10,51 +10,23 @@ import (
 	"math/big"
 
 	"github.com/pduveau/gocert/asn1"
+	"github.com/pduveau/gocert/internal/keys"
 )
-
-// pkcs1PrivateKey is a structure which mirrors the PKCS #1 ASN.1 for an RSA private key.
-type pkcs1PrivateKey struct {
-	Version int
-	N       *big.Int
-	E       int
-	D       *big.Int
-	P       *big.Int
-	Q       *big.Int
-	Dp      *big.Int `asn1:"optional"`
-	Dq      *big.Int `asn1:"optional"`
-	Qinv    *big.Int `asn1:"optional"`
-
-	AdditionalPrimes []pkcs1AdditionalRSAPrime `asn1:"optional,omitempty"`
-}
-
-type pkcs1AdditionalRSAPrime struct {
-	Prime *big.Int
-
-	// We ignore these values because rsa will calculate them.
-	Exp   *big.Int
-	Coeff *big.Int
-}
-
-// pkcs1PublicKey reflects the ASN.1 structure of a PKCS #1 public key.
-type pkcs1PublicKey struct {
-	N *big.Int
-	E int
-}
 
 // ParsePKCS1PrivateKey parses an [RSA] private key in PKCS #1, ASN.1 DER form.
 //
 // This kind of key is commonly encoded in PEM blocks of type "RSA PRIVATE KEY".
 func ParsePKCS1PrivateKey(der []byte) (*rsa.PrivateKey, error) {
-	var priv pkcs1PrivateKey
+	var priv keys.Pkcs1PrivateKey
 	rest, err := asn1.Unmarshal(der, &priv)
 	if len(rest) > 0 {
 		return nil, asn1.SyntaxError{Msg: "trailing data"}
 	}
 	if err != nil {
-		if _, err := asn1.Unmarshal(der, &ecPrivateKey{}); err == nil {
+		if _, err := asn1.Unmarshal(der, &keys.EcPrivateKey{}); err == nil {
 			return nil, errors.New("x509: failed to parse private key (use ParseECPrivateKey instead for this key format)")
 		}
-		if _, err := asn1.Unmarshal(der, &pkcs8{}); err == nil {
+		if _, err := asn1.Unmarshal(der, &keys.Pkcs8{}); err == nil {
 			return nil, errors.New("x509: failed to parse private key (use ParsePKCS8PrivateKey instead for this key format)")
 		}
 		return nil, err
@@ -118,7 +90,7 @@ func MarshalPKCS1PrivateKey(key *rsa.PrivateKey) []byte {
 		version = 1
 	}
 
-	priv := pkcs1PrivateKey{
+	priv := keys.Pkcs1PrivateKey{
 		Version: version,
 		N:       key.N,
 		E:       key.PublicKey.E,
@@ -130,7 +102,7 @@ func MarshalPKCS1PrivateKey(key *rsa.PrivateKey) []byte {
 		Qinv:    key.Precomputed.Qinv,
 	}
 
-	priv.AdditionalPrimes = make([]pkcs1AdditionalRSAPrime, len(key.Precomputed.CRTValues))
+	priv.AdditionalPrimes = make([]keys.Pkcs1AdditionalRSAPrime, len(key.Precomputed.CRTValues))
 	for i, values := range key.Precomputed.CRTValues {
 		priv.AdditionalPrimes[i].Prime = key.Primes[2+i]
 		priv.AdditionalPrimes[i].Exp = values.Exp
@@ -145,10 +117,10 @@ func MarshalPKCS1PrivateKey(key *rsa.PrivateKey) []byte {
 //
 // This kind of key is commonly encoded in PEM blocks of type "RSA PUBLIC KEY".
 func ParsePKCS1PublicKey(der []byte) (*rsa.PublicKey, error) {
-	var pub pkcs1PublicKey
+	var pub keys.Pkcs1PublicKey
 	rest, err := asn1.Unmarshal(der, &pub)
 	if err != nil {
-		if _, err := asn1.Unmarshal(der, &publicKeyInfo{}); err == nil {
+		if _, err := asn1.Unmarshal(der, &keys.PublicKeyInfo{}); err == nil {
 			return nil, errors.New("x509: failed to parse public key (use ParsePKIXPublicKey instead for this key format)")
 		}
 		return nil, err
@@ -174,7 +146,7 @@ func ParsePKCS1PublicKey(der []byte) (*rsa.PublicKey, error) {
 //
 // This kind of key is commonly encoded in PEM blocks of type "RSA PUBLIC KEY".
 func MarshalPKCS1PublicKey(key *rsa.PublicKey) []byte {
-	derBytes, _ := asn1.Marshal(pkcs1PublicKey{
+	derBytes, _ := asn1.Marshal(keys.Pkcs1PublicKey{
 		N: key.N,
 		E: key.E,
 	})

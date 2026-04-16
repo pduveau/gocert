@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/pduveau/gocert/pkcs8"
 	"github.com/pduveau/gocert/x509"
 )
 
@@ -174,7 +175,7 @@ func TestRoundtripToPKCS12(t *testing.T) {
 	caroot_der, _ := pem.Decode(caroot_pem)
 	leaf_der, _ := pem.Decode(leaf_pem)
 
-	key, _, err := x509.ParsePKCS8EncryptedPrivateKey(key_der.Bytes, []byte("password"))
+	key, _, err := pkcs8.ParsePKCS8EncryptedPrivateKey(key_der.Bytes, []byte("password"))
 	if err != nil {
 		t.Fatal("ENCRYPTED PRIVATE KEY: error parsing")
 	}

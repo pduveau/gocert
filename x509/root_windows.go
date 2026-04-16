@@ -10,6 +10,8 @@ import (
 	"strings"
 	"syscall"
 	"unsafe"
+
+	"github.com/pduveau/gocert/oids"
 )
 
 func loadSystemRoots() (*CertPool, error) {
@@ -187,7 +189,7 @@ func verifyChain(c *Certificate, chainCtx *syscall.CertChainContext, opts *Verif
 	// using spoofed parameters, the signature will be invalid for the correct
 	// ones we parsed. (We don't support custom curves ourselves.)
 	for i, parent := range chain[1:] {
-		if parent.PublicKeyAlgorithm != ECDSA {
+		if parent.PublicKeyAlgorithm != oids.ECDSA {
 			continue
 		}
 		if err := parent.CheckSignature(chain[i].SignatureAlgorithm,

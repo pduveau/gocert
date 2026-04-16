@@ -5,31 +5,8 @@ import (
 	"fmt"
 
 	"github.com/pduveau/gocert/asn1"
+	"github.com/pduveau/gocert/oids"
 	"github.com/pduveau/gocert/pkix"
-)
-
-type HmacOID asn1.ObjectIdentifier
-type CipherOID asn1.ObjectIdentifier
-
-var (
-	OidScrypt      = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 11591, 4, 11}
-	OidPKCS5PBKDF2 = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 5, 12}
-	OidPBES2       = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 5, 13}
-	OidPBMAC1      = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 5, 14}
-
-	// Hmac Algorithms
-	OidHMACWithSHA1       = HmacOID{1, 2, 840, 113549, 2, 7}
-	OidHMACWithSHA224     = HmacOID{1, 2, 840, 113549, 2, 8}
-	OidHMACWithSHA256     = HmacOID{1, 2, 840, 113549, 2, 9}
-	OidHMACWithSHA384     = HmacOID{1, 2, 840, 113549, 2, 10}
-	OidHMACWithSHA512     = HmacOID{1, 2, 840, 113549, 2, 11}
-	OidHMACWithSHA512_224 = HmacOID{1, 2, 840, 113549, 2, 12}
-	OidHMACWithSHA512_256 = HmacOID{1, 2, 840, 113549, 2, 13}
-
-	// Encryption Algorithms
-	OidAES128CBC = CipherOID{2, 16, 840, 1, 101, 3, 4, 1, 2}
-	OidAES192CBC = CipherOID{2, 16, 840, 1, 101, 3, 4, 1, 22}
-	OidAES256CBC = CipherOID{2, 16, 840, 1, 101, 3, 4, 1, 42}
 )
 
 // DefaultOpts are the default options for encrypting a key if none are given.
@@ -38,7 +15,7 @@ func NewDefaultOpts() *Opts {
 	return &Opts{
 		Cipher:    NewDefaultCipher(),
 		KDFParams: NewDefaultKDF(),
-		Oid:       OidPBES2,
+		Oid:       oids.OidPBES2,
 	}
 }
 
@@ -46,7 +23,7 @@ func NewDefaultPBMAC1Opts() *Opts {
 	return &Opts{
 		Cipher:    NewDefaultPBMAC1Cipher(),
 		KDFParams: NewDefaultKDF(),
-		Oid:       OidPBMAC1,
+		Oid:       oids.OidPBMAC1,
 	}
 }
 
@@ -75,7 +52,7 @@ func ParseKeyDerivationFunc(keyDerivationFunc pkix.AlgorithmIdentifier) (params 
 }
 
 func ParseEncryptionScheme(encryptionScheme pkix.AlgorithmIdentifier) (cipher Cipher, iv []byte, err error) {
-	cipher, err = NewCipher(CipherOID(encryptionScheme.Algorithm))
+	cipher, err = NewCipher(oids.CipherOID(encryptionScheme.Algorithm))
 	if err == nil {
 		if _, err := asn1.Unmarshal(encryptionScheme.Parameters.FullBytes, &iv); err != nil {
 			return nil, nil, fmt.Errorf("pkcs8: invalid cipher parameters")
@@ -101,7 +78,7 @@ func ParseEncryptedPKCS5(encryptionAlgorithm pkix.AlgorithmIdentifier, encrypted
 		return nil, nil, fmt.Errorf("pkcs8: password is required")
 	}
 
-	if !encryptionAlgorithm.Algorithm.Equal(OidPBES2) {
+	if !encryptionAlgorithm.Algorithm.Equal(oids.OidPBES2) {
 		return nil, nil, fmt.Errorf("pkcs8: only PBES2 supported")
 	}
 
@@ -171,7 +148,7 @@ func MakePBES2(options ...*Opts) (*pkix.AlgorithmIdentifier, []byte, error) {
 		return nil, nil, err
 	}
 
-	oid := OidPBES2
+	oid := oids.OidPBES2
 	if opts.Oid != nil {
 		oid = opts.Oid
 	}

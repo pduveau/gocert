@@ -9,16 +9,10 @@ import (
 	"fmt"
 
 	"github.com/pduveau/gocert/asn1"
+	"github.com/pduveau/gocert/oids"
 	"github.com/pduveau/gocert/pkix"
 	"golang.org/x/crypto/scrypt"
 )
-
-func (c HmacOID) Equal(d HmacOID) bool {
-	return asn1.ObjectIdentifier(c).Equal(asn1.ObjectIdentifier(d))
-}
-func (c HmacOID) ToAsn1() asn1.ObjectIdentifier {
-	return asn1.ObjectIdentifier(c)
-}
 
 func makeSalt(size int, current *[]byte) (salt []byte, err error) {
 	if size > 0 {
@@ -59,10 +53,10 @@ func (p *scryptBase) Param() any {
 }
 
 func (p *scryptBase) OID() asn1.ObjectIdentifier {
-	return OidScrypt
+	return oids.OidScrypt
 }
 
-func (p *scryptBase) HmacOID() HmacOID {
+func (p *scryptBase) HmacOID() oids.HmacOID {
 	return nil
 }
 
@@ -110,19 +104,19 @@ func (p *pbkdf2Params) MakeSalt(saltSize int) error {
 
 func (p *pbkdf2Params) DeriveKey(password []byte, size int) (key []byte, err error) {
 	switch {
-	case len(p.PRF.Algorithm) == 0 || p.PRF.Algorithm.Equal(OidHMACWithSHA1.ToAsn1()):
+	case len(p.PRF.Algorithm) == 0 || p.PRF.Algorithm.Equal(oids.OidHMACWithSHA1.ToAsn1()):
 		return pbkdf2.Key(sha1.New, string(password), p.Salt, p.IterationCount, size)
-	case p.PRF.Algorithm.Equal(OidHMACWithSHA224.ToAsn1()):
+	case p.PRF.Algorithm.Equal(oids.OidHMACWithSHA224.ToAsn1()):
 		return pbkdf2.Key(sha256.New224, string(password), p.Salt, p.IterationCount, size)
-	case p.PRF.Algorithm.Equal(OidHMACWithSHA256.ToAsn1()):
+	case p.PRF.Algorithm.Equal(oids.OidHMACWithSHA256.ToAsn1()):
 		return pbkdf2.Key(sha256.New, string(password), p.Salt, p.IterationCount, size)
-	case p.PRF.Algorithm.Equal(OidHMACWithSHA384.ToAsn1()):
+	case p.PRF.Algorithm.Equal(oids.OidHMACWithSHA384.ToAsn1()):
 		return pbkdf2.Key(sha512.New384, string(password), p.Salt, p.IterationCount, size)
-	case p.PRF.Algorithm.Equal(OidHMACWithSHA512.ToAsn1()):
+	case p.PRF.Algorithm.Equal(oids.OidHMACWithSHA512.ToAsn1()):
 		return pbkdf2.Key(sha512.New, string(password), p.Salt, p.IterationCount, size)
-	case p.PRF.Algorithm.Equal(OidHMACWithSHA512_224.ToAsn1()):
+	case p.PRF.Algorithm.Equal(oids.OidHMACWithSHA512_224.ToAsn1()):
 		return pbkdf2.Key(sha512.New512_224, string(password), p.Salt, p.IterationCount, size)
-	case p.PRF.Algorithm.Equal(OidHMACWithSHA512_256.ToAsn1()):
+	case p.PRF.Algorithm.Equal(oids.OidHMACWithSHA512_256.ToAsn1()):
 		return pbkdf2.Key(sha512.New512_256, string(password), p.Salt, p.IterationCount, size)
 	}
 	return nil, fmt.Errorf("pkcs8: unsupported hash function")
@@ -133,11 +127,11 @@ func (p *pbkdf2Params) Param() any {
 }
 
 func (p *pbkdf2Params) OID() asn1.ObjectIdentifier {
-	return OidPKCS5PBKDF2
+	return oids.OidPKCS5PBKDF2
 }
 
-func (p *pbkdf2Params) HmacOID() HmacOID {
-	return HmacOID(p.PRF.Algorithm)
+func (p *pbkdf2Params) HmacOID() oids.HmacOID {
+	return oids.HmacOID(p.PRF.Algorithm)
 }
 
 func (p *pbkdf2Params) SetSalt(salt []byte) {
@@ -164,7 +158,7 @@ func (p *pbkdf2Params) GetIterations() int {
 	return p.IterationCount
 }
 
-func NewPbkdf2Params(IterationCount int, Algorithm HmacOID) *pbkdf2Params {
+func NewPbkdf2Params(IterationCount int, Algorithm oids.HmacOID) *pbkdf2Params {
 	return &pbkdf2Params{
 		IterationCount: IterationCount,
 		PRF: pkix.AlgorithmIdentifier{
@@ -185,7 +179,7 @@ type KDFParams interface {
 	// GetSaltSize() int
 	// OID returns the OID of the KDF specified.
 	OID() asn1.ObjectIdentifier
-	HmacOID() HmacOID
+	HmacOID() oids.HmacOID
 	// return the KDFParams itself to allow marshal
 	Param() any
 	// SetSalt
@@ -199,18 +193,18 @@ type KDFParams interface {
 	GetIterations() int
 }
 
-func NewKDFParams(oid asn1.ObjectIdentifier, hmac ...HmacOID) (KDFParams, error) {
-	usedhmac := HmacOID{}
+func NewKDFParams(oid asn1.ObjectIdentifier, hmac ...oids.HmacOID) (KDFParams, error) {
+	usedhmac := oids.HmacOID{}
 	if len(hmac) > 0 {
 		usedhmac = hmac[0]
 	}
 	switch {
-	case oid.Equal(OidPKCS5PBKDF2):
+	case oid.Equal(oids.OidPKCS5PBKDF2):
 		return NewPbkdf2Params(0, usedhmac), nil
-	case oid.Equal(OidScrypt):
+	case oid.Equal(oids.OidScrypt):
 		return NewScryptParams(0, 0, 0), nil
 	}
 	return nil, fmt.Errorf("pkcs5: unsupported KDF (OID: %s)", oid.String())
 }
 
-func NewDefaultKDF() KDFParams { return NewPbkdf2Params(10000, OidHMACWithSHA256) }
+func NewDefaultKDF() KDFParams { return NewPbkdf2Params(10000, oids.OidHMACWithSHA256) }

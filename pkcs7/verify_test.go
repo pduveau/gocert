@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pduveau/gocert/oids"
+	"github.com/pduveau/gocert/pkcs1"
 	"github.com/pduveau/gocert/x509"
 )
 
@@ -459,14 +461,14 @@ but that's not what ships are built for.
 
 	tmpContentFile.Write(content)
 	tmpContentFile.Close()
-	sigalgs := []x509.SignatureAlgorithm{
-		//		x509.SHA1WithRSA,
-		x509.RSAWithSHA256,
-		x509.RSAWithSHA512,
-		// x509.ECDSAWithSHA1,
-		x509.ECDSAWithSHA256,
-		x509.ECDSAWithSHA384,
-		x509.ECDSAWithSHA512,
+	sigalgs := []oids.SignatureAlgorithm{
+		//		oids.SHA1WithRSA,
+		oids.RSAWithSHA256,
+		oids.RSAWithSHA512,
+		// oids.ECDSAWithSHA1,
+		oids.ECDSAWithSHA256,
+		oids.ECDSAWithSHA384,
+		oids.ECDSAWithSHA512,
 	}
 	for _, sigalgroot := range sigalgs {
 		rootCert, err := createTestCertificateByIssuer("PKCS7 Test Root CA", nil, sigalgroot, true)
@@ -511,10 +513,10 @@ but that's not what ships are built for.
 				priv := *signerCert.PrivateKey
 				switch p := priv.(type) {
 				case *rsa.PrivateKey:
-					derKey = x509.MarshalPKCS1PrivateKey(p)
+					derKey = pkcs1.MarshalPKCS1PrivateKey(p)
 					pem.Encode(tmpSignerKeyFile, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: derKey})
 				case *ecdsa.PrivateKey:
-					derKey, err = x509.MarshalECPrivateKey(p)
+					derKey, err = pkcs1.MarshalECPrivateKey(p)
 					if err != nil {
 						t.Fatal(err)
 					}

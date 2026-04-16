@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package x509
+package pem
 
 import (
 	"bytes"
@@ -11,6 +11,8 @@ import (
 	"encoding/pem"
 	"strings"
 	"testing"
+
+	"github.com/pduveau/gocert/pkcs1"
 )
 
 func TestDecrypt(t *testing.T) {
@@ -25,7 +27,7 @@ func TestDecrypt(t *testing.T) {
 			t.Error("decrypt failed: ", err)
 			continue
 		}
-		if _, err := ParsePKCS1PrivateKey(der); err != nil {
+		if _, err := pkcs1.ParsePKCS1PrivateKey(der); err != nil {
 			t.Error("invalid private key: ", err)
 		}
 		plainDER, err := base64.StdEncoding.DecodeString(data.plainDER)

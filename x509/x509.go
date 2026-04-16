@@ -35,7 +35,6 @@ import (
 	"math/big"
 	"net"
 	"net/url"
-	"strconv"
 	"time"
 	"unicode"
 
@@ -46,7 +45,9 @@ import (
 	_ "crypto/sha512"
 
 	"github.com/pduveau/gocert/asn1"
+	"github.com/pduveau/gocert/internal/keys"
 	"github.com/pduveau/gocert/internal/pkixstring"
+	"github.com/pduveau/gocert/oids"
 	"github.com/pduveau/gocert/pkix"
 )
 
@@ -82,9 +83,9 @@ type RevokedCertificate struct {
 //
 // This kind of key is commonly encoded in PEM blocks of type "PUBLIC KEY".
 func ParsePKIXPublicKey(derBytes []byte) (pub any, err error) {
-	var pki publicKeyInfo
+	var pki keys.PublicKeyInfo
 	if rest, err := asn1.Unmarshal(derBytes, &pki); err != nil {
-		if _, err := asn1.Unmarshal(derBytes, &pkcs1PublicKey{}); err == nil {
+		if _, err := asn1.Unmarshal(derBytes, &keys.Pkcs1PublicKey{}); err == nil {
 			return nil, errors.New("x509: failed to parse public key (use ParsePKCS1PublicKey instead for this key format)")
 		}
 		return nil, err
@@ -97,19 +98,19 @@ func ParsePKIXPublicKey(derBytes []byte) (pub any, err error) {
 func marshalPublicKey(pub any) (publicKeyBytes []byte, publicKeyAlgorithm pkix.AlgorithmIdentifier, err error) {
 	switch pub := pub.(type) {
 	case *rsa.PublicKey:
-		publicKeyBytes, err = asn1.Marshal(pkcs1PublicKey{
+		publicKeyBytes, err = asn1.Marshal(keys.Pkcs1PublicKey{
 			N: pub.N,
 			E: pub.E,
 		})
 		if err != nil {
 			return nil, pkix.AlgorithmIdentifier{}, err
 		}
-		publicKeyAlgorithm.Algorithm = oidPublicKeyRSA
+		publicKeyAlgorithm.Algorithm = oids.OidPublicKeyRSA
 		// This is a NULL parameters value which is required by
 		// RFC 3279, Section 2.3.1.
 		publicKeyAlgorithm.Parameters = asn1.NullRawValue
 	case *ecdsa.PublicKey:
-		oid, ok := oidFromNamedCurve(pub.Curve)
+		oid, ok := oids.OidFromNamedCurve(pub.Curve)
 		if !ok {
 			return nil, pkix.AlgorithmIdentifier{}, errors.New("x509: unsupported elliptic curve")
 		}
@@ -117,7 +118,7 @@ func marshalPublicKey(pub any) (publicKeyBytes []byte, publicKeyAlgorithm pkix.A
 		if err != nil {
 			return nil, pkix.AlgorithmIdentifier{}, err
 		}
-		publicKeyAlgorithm.Algorithm = oidPublicKeyECDSA
+		publicKeyAlgorithm.Algorithm = oids.OidPublicKeyECDSA
 		var paramBytes []byte
 		paramBytes, err = asn1.Marshal(oid)
 		if err != nil {
@@ -126,17 +127,17 @@ func marshalPublicKey(pub any) (publicKeyBytes []byte, publicKeyAlgorithm pkix.A
 		publicKeyAlgorithm.Parameters.FullBytes = paramBytes
 	case ed25519.PublicKey:
 		publicKeyBytes = pub
-		publicKeyAlgorithm.Algorithm = oidPublicKeyEd25519
+		publicKeyAlgorithm.Algorithm = oids.OidPublicKeyEd25519
 	case *ecdh.PublicKey:
 		publicKeyBytes = pub.Bytes()
 		if pub.Curve() == ecdh.X25519() {
-			publicKeyAlgorithm.Algorithm = oidPublicKeyX25519
+			publicKeyAlgorithm.Algorithm = oids.OidPublicKeyX25519
 		} else {
-			oid, ok := oidFromECDHCurve(pub.Curve())
+			oid, ok := oids.OidFromECDHCurve(pub.Curve())
 			if !ok {
 				return nil, pkix.AlgorithmIdentifier{}, errors.New("x509: unsupported elliptic curve")
 			}
-			publicKeyAlgorithm.Algorithm = oidPublicKeyECDSA
+			publicKeyAlgorithm.Algorithm = oids.OidPublicKeyECDSA
 			var paramBytes []byte
 			paramBytes, err = asn1.Marshal(oid)
 			if err != nil {
@@ -197,7 +198,7 @@ type tbsCertificate struct {
 	Issuer             asn1.RawValue
 	Validity           validity
 	Subject            asn1.RawValue
-	PublicKey          publicKeyInfo
+	PublicKey          keys.PublicKeyInfo
 	UniqueId           asn1.BitString `asn1:"optional,tag:1"`
 	SubjectUniqueId    asn1.BitString `asn1:"optional,tag:2"`
 	Extensions         []Extension    `asn1:"omitempty,optional,explicit,tag:3"`
@@ -207,207 +208,10 @@ type validity struct {
 	NotBefore, NotAfter time.Time
 }
 
-type publicKeyInfo struct {
-	Raw       asn1.RawContent
-	Algorithm pkix.AlgorithmIdentifier
-	PublicKey asn1.BitString
-}
-
 // RFC 5280,  4.2.1.1
 type authKeyId struct {
 	Id []byte `asn1:"optional,tag:0"`
 }
-
-type SignatureAlgorithm int
-
-const (
-	UnknownSignatureAlgorithm SignatureAlgorithm = iota
-
-	RSAWithMD2  // Unsupported.
-	RSAWithMD5  // Only supported for signing, not verification.
-	RSAWithSHA1 // Only supported for signing, and verification of CRLs, CSRs, and OCSP responses.
-	RSAWithSHA256
-	RSAWithSHA384
-	RSAWithSHA512
-	DSAWithSHA1   // Unsupported.
-	DSAWithSHA256 // Unsupported.
-	ECDSAWithSHA1 // Only supported for signing, and verification of CRLs, CSRs, and OCSP responses.
-	ECDSAWithSHA256
-	ECDSAWithSHA384
-	ECDSAWithSHA512
-	RSAPSSWithSHA256
-	RSAPSSWithSHA384
-	RSAPSSWithSHA512
-	PureEd25519
-)
-
-func (algo SignatureAlgorithm) isRSAPSS() bool {
-	for _, details := range signatureAlgorithmDetails {
-		if details.algo == algo {
-			return details.isRSAPSS
-		}
-	}
-	return false
-}
-
-func (algo SignatureAlgorithm) hashFunc() crypto.Hash {
-	for _, details := range signatureAlgorithmDetails {
-		if details.algo == algo {
-			return details.hash
-		}
-	}
-	return crypto.Hash(0)
-}
-
-func (algo SignatureAlgorithm) String() string {
-	for _, details := range signatureAlgorithmDetails {
-		if details.algo == algo {
-			return details.name
-		}
-	}
-	return strconv.Itoa(int(algo))
-}
-
-type PublicKeyAlgorithm int
-
-const (
-	UnknownPublicKeyAlgorithm PublicKeyAlgorithm = iota
-	RSA
-	DSA // Only supported for parsing.
-	ECDSA
-	Ed25519
-)
-
-var publicKeyAlgoName = [...]string{
-	RSA:     "RSA",
-	DSA:     "DSA",
-	ECDSA:   "ECDSA",
-	Ed25519: "Ed25519",
-}
-
-func (algo PublicKeyAlgorithm) String() string {
-	if 0 < algo && int(algo) < len(publicKeyAlgoName) {
-		return publicKeyAlgoName[algo]
-	}
-	return strconv.Itoa(int(algo))
-}
-
-// OIDs for signature algorithms
-//
-//	pkcs-1 OBJECT IDENTIFIER ::= {
-//		iso(1) member-body(2) us(840) rsadsi(113549) pkcs(1) 1 }
-//
-// RFC 3279 2.2.1 RSA Signature Algorithms
-//
-//	md5WithRSAEncryption OBJECT IDENTIFIER ::= { pkcs-1 4 }
-//
-//	sha-1WithRSAEncryption OBJECT IDENTIFIER ::= { pkcs-1 5 }
-//
-//	dsaWithSha1 OBJECT IDENTIFIER ::= {
-//		iso(1) member-body(2) us(840) x9-57(10040) x9cm(4) 3 }
-//
-// RFC 3279 2.2.3 ECDSA Signature Algorithm
-//
-//	ecdsa-with-SHA1 OBJECT IDENTIFIER ::= {
-//		iso(1) member-body(2) us(840) ansi-x962(10045)
-//		signatures(4) ecdsa-with-SHA1(1)}
-//
-// RFC 4055 5 PKCS #1 Version 1.5
-//
-//	sha256WithRSAEncryption OBJECT IDENTIFIER ::= { pkcs-1 11 }
-//
-//	sha384WithRSAEncryption OBJECT IDENTIFIER ::= { pkcs-1 12 }
-//
-//	sha512WithRSAEncryption OBJECT IDENTIFIER ::= { pkcs-1 13 }
-//
-// RFC 5758 3.1 DSA Signature Algorithms
-//
-//	dsaWithSha256 OBJECT IDENTIFIER ::= {
-//		joint-iso-ccitt(2) country(16) us(840) organization(1) gov(101)
-//		csor(3) algorithms(4) id-dsa-with-sha2(3) 2}
-//
-// RFC 5758 3.2 ECDSA Signature Algorithm
-//
-//	ecdsa-with-SHA256 OBJECT IDENTIFIER ::= { iso(1) member-body(2)
-//		us(840) ansi-X9-62(10045) signatures(4) ecdsa-with-SHA2(3) 2 }
-//
-//	ecdsa-with-SHA384 OBJECT IDENTIFIER ::= { iso(1) member-body(2)
-//		us(840) ansi-X9-62(10045) signatures(4) ecdsa-with-SHA2(3) 3 }
-//
-//	ecdsa-with-SHA512 OBJECT IDENTIFIER ::= { iso(1) member-body(2)
-//		us(840) ansi-X9-62(10045) signatures(4) ecdsa-with-SHA2(3) 4 }
-//
-// RFC 8410 3 Curve25519 and Curve448 Algorithm Identifiers
-//
-//	id-Ed25519   OBJECT IDENTIFIER ::= { 1 3 101 112 }
-var (
-	oidSignatureMD5WithRSA      = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 4}
-	oidSignatureSHA1WithRSA     = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 5}
-	oidSignatureSHA256WithRSA   = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 11}
-	oidSignatureSHA384WithRSA   = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 12}
-	oidSignatureSHA512WithRSA   = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 13}
-	oidSignatureRSAPSS          = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 10}
-	oidSignatureDSAWithSHA1     = asn1.ObjectIdentifier{1, 2, 840, 10040, 4, 3}
-	oidSignatureDSAWithSHA256   = asn1.ObjectIdentifier{2, 16, 840, 1, 101, 3, 4, 3, 2}
-	oidSignatureECDSAWithSHA1   = asn1.ObjectIdentifier{1, 2, 840, 10045, 4, 1}
-	oidSignatureECDSAWithSHA256 = asn1.ObjectIdentifier{1, 2, 840, 10045, 4, 3, 2}
-	oidSignatureECDSAWithSHA384 = asn1.ObjectIdentifier{1, 2, 840, 10045, 4, 3, 3}
-	oidSignatureECDSAWithSHA512 = asn1.ObjectIdentifier{1, 2, 840, 10045, 4, 3, 4}
-	oidSignatureEd25519         = asn1.ObjectIdentifier{1, 3, 101, 112}
-
-	oidSHA256 = asn1.ObjectIdentifier{2, 16, 840, 1, 101, 3, 4, 2, 1}
-	oidSHA384 = asn1.ObjectIdentifier{2, 16, 840, 1, 101, 3, 4, 2, 2}
-	oidSHA512 = asn1.ObjectIdentifier{2, 16, 840, 1, 101, 3, 4, 2, 3}
-
-	oidMGF1 = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 8}
-
-	// oidISOSignatureSHA1WithRSA means the same as oidSignatureSHA1WithRSA
-	// but it's specified by ISO. Microsoft's makecert.exe has been known
-	// to produce certificates with this OID.
-	oidISOSignatureSHA1WithRSA = asn1.ObjectIdentifier{1, 3, 14, 3, 2, 29}
-)
-
-var signatureAlgorithmDetails = []struct {
-	algo       SignatureAlgorithm
-	name       string
-	oid        asn1.ObjectIdentifier
-	params     asn1.RawValue
-	pubKeyAlgo PublicKeyAlgorithm
-	hash       crypto.Hash
-	isRSAPSS   bool
-}{
-	{RSAWithMD5, "MD5-RSA", oidSignatureMD5WithRSA, asn1.NullRawValue, RSA, crypto.MD5, false},
-	{RSAWithSHA1, "SHA1-RSA", oidSignatureSHA1WithRSA, asn1.NullRawValue, RSA, crypto.SHA1, false},
-	{RSAWithSHA1, "SHA1-RSA", oidISOSignatureSHA1WithRSA, asn1.NullRawValue, RSA, crypto.SHA1, false},
-	{RSAWithSHA256, "SHA256-RSA", oidSignatureSHA256WithRSA, asn1.NullRawValue, RSA, crypto.SHA256, false},
-	{RSAWithSHA384, "SHA384-RSA", oidSignatureSHA384WithRSA, asn1.NullRawValue, RSA, crypto.SHA384, false},
-	{RSAWithSHA512, "SHA512-RSA", oidSignatureSHA512WithRSA, asn1.NullRawValue, RSA, crypto.SHA512, false},
-	{RSAPSSWithSHA256, "SHA256-RSAPSS", oidSignatureRSAPSS, pssParametersSHA256, RSA, crypto.SHA256, true},
-	{RSAPSSWithSHA384, "SHA384-RSAPSS", oidSignatureRSAPSS, pssParametersSHA384, RSA, crypto.SHA384, true},
-	{RSAPSSWithSHA512, "SHA512-RSAPSS", oidSignatureRSAPSS, pssParametersSHA512, RSA, crypto.SHA512, true},
-	{DSAWithSHA1, "DSA-SHA1", oidSignatureDSAWithSHA1, emptyRawValue, DSA, crypto.SHA1, false},
-	{DSAWithSHA256, "DSA-SHA256", oidSignatureDSAWithSHA256, emptyRawValue, DSA, crypto.SHA256, false},
-	{ECDSAWithSHA1, "ECDSA-SHA1", oidSignatureECDSAWithSHA1, emptyRawValue, ECDSA, crypto.SHA1, false},
-	{ECDSAWithSHA256, "ECDSA-SHA256", oidSignatureECDSAWithSHA256, emptyRawValue, ECDSA, crypto.SHA256, false},
-	{ECDSAWithSHA384, "ECDSA-SHA384", oidSignatureECDSAWithSHA384, emptyRawValue, ECDSA, crypto.SHA384, false},
-	{ECDSAWithSHA512, "ECDSA-SHA512", oidSignatureECDSAWithSHA512, emptyRawValue, ECDSA, crypto.SHA512, false},
-	{PureEd25519, "Ed25519", oidSignatureEd25519, emptyRawValue, Ed25519, crypto.Hash(0) /* no pre-hashing */, false},
-}
-
-var emptyRawValue = asn1.RawValue{}
-
-// DER encoded RSA PSS parameters for the
-// SHA256, SHA384, and SHA512 hashes as defined in RFC 3447, Appendix A.2.3.
-// The parameters contain the following values:
-//   - hashAlgorithm contains the associated hash identifier with NULL parameters
-//   - maskGenAlgorithm always contains the default mgf1SHA1 identifier
-//   - saltLength contains the length of the associated hash
-//   - trailerField always contains the default trailerFieldBC value
-var (
-	pssParametersSHA256 = asn1.RawValue{FullBytes: []byte{48, 52, 160, 15, 48, 13, 6, 9, 96, 134, 72, 1, 101, 3, 4, 2, 1, 5, 0, 161, 28, 48, 26, 6, 9, 42, 134, 72, 134, 247, 13, 1, 1, 8, 48, 13, 6, 9, 96, 134, 72, 1, 101, 3, 4, 2, 1, 5, 0, 162, 3, 2, 1, 32}}
-	pssParametersSHA384 = asn1.RawValue{FullBytes: []byte{48, 52, 160, 15, 48, 13, 6, 9, 96, 134, 72, 1, 101, 3, 4, 2, 2, 5, 0, 161, 28, 48, 26, 6, 9, 42, 134, 72, 134, 247, 13, 1, 1, 8, 48, 13, 6, 9, 96, 134, 72, 1, 101, 3, 4, 2, 2, 5, 0, 162, 3, 2, 1, 48}}
-	pssParametersSHA512 = asn1.RawValue{FullBytes: []byte{48, 52, 160, 15, 48, 13, 6, 9, 96, 134, 72, 1, 101, 3, 4, 2, 3, 5, 0, 161, 28, 48, 26, 6, 9, 42, 134, 72, 134, 247, 13, 1, 1, 8, 48, 13, 6, 9, 96, 134, 72, 1, 101, 3, 4, 2, 3, 5, 0, 162, 3, 2, 1, 64}}
-)
 
 // pssParameters reflects the parameters in an AlgorithmIdentifier that
 // specifies RSA PSS. See RFC 3447, Appendix A.2.3.
@@ -421,22 +225,22 @@ type pssParameters struct {
 	TrailerField int                      `asn1:"optional,explicit,tag:3,default:1"`
 }
 
-func getSignatureAlgorithmFromAI(ai pkix.AlgorithmIdentifier) SignatureAlgorithm {
-	if ai.Algorithm.Equal(oidSignatureEd25519) {
+func getSignatureAlgorithmFromAI(ai pkix.AlgorithmIdentifier) oids.SignatureAlgorithm {
+	if ai.Algorithm.Equal(oids.OidSignatureEd25519) {
 		// RFC 8410, Section 3
 		// > For all of the OIDs, the parameters MUST be absent.
 		if len(ai.Parameters.FullBytes) != 0 {
-			return UnknownSignatureAlgorithm
+			return oids.UnknownSignatureAlgorithm
 		}
 	}
 
-	if !ai.Algorithm.Equal(oidSignatureRSAPSS) {
-		for _, details := range signatureAlgorithmDetails {
-			if ai.Algorithm.Equal(details.oid) {
-				return details.algo
+	if !ai.Algorithm.Equal(oids.OidSignatureRSAPSS) {
+		for _, details := range oids.SignatureAlgorithmDetails {
+			if ai.Algorithm.Equal(details.Oid) {
+				return details.Algo
 			}
 		}
-		return UnknownSignatureAlgorithm
+		return oids.UnknownSignatureAlgorithm
 	}
 
 	// RSA PSS is special because it encodes important parameters
@@ -444,12 +248,12 @@ func getSignatureAlgorithmFromAI(ai pkix.AlgorithmIdentifier) SignatureAlgorithm
 
 	var params pssParameters
 	if _, err := asn1.Unmarshal(ai.Parameters.FullBytes, &params); err != nil {
-		return UnknownSignatureAlgorithm
+		return oids.UnknownSignatureAlgorithm
 	}
 
 	var mgf1HashFunc pkix.AlgorithmIdentifier
 	if _, err := asn1.Unmarshal(params.MGF.Parameters.FullBytes, &mgf1HashFunc); err != nil {
-		return UnknownSignatureAlgorithm
+		return oids.UnknownSignatureAlgorithm
 	}
 
 	// PSS is greatly overburdened with options. This code forces them into
@@ -458,132 +262,23 @@ func getSignatureAlgorithmFromAI(ai pkix.AlgorithmIdentifier) SignatureAlgorithm
 	// salt length matches the hash length, and that the trailer field has the
 	// default value.
 	if (len(params.Hash.Parameters.FullBytes) != 0 && !bytes.Equal(params.Hash.Parameters.FullBytes, asn1.NullBytes)) ||
-		!params.MGF.Algorithm.Equal(oidMGF1) ||
+		!params.MGF.Algorithm.Equal(oids.OidMGF1) ||
 		!mgf1HashFunc.Algorithm.Equal(params.Hash.Algorithm) ||
 		(len(mgf1HashFunc.Parameters.FullBytes) != 0 && !bytes.Equal(mgf1HashFunc.Parameters.FullBytes, asn1.NullBytes)) ||
 		params.TrailerField != 1 {
-		return UnknownSignatureAlgorithm
+		return oids.UnknownSignatureAlgorithm
 	}
 
 	switch {
-	case params.Hash.Algorithm.Equal(oidSHA256) && params.SaltLength == 32:
-		return RSAPSSWithSHA256
-	case params.Hash.Algorithm.Equal(oidSHA384) && params.SaltLength == 48:
-		return RSAPSSWithSHA384
-	case params.Hash.Algorithm.Equal(oidSHA512) && params.SaltLength == 64:
-		return RSAPSSWithSHA512
+	case params.Hash.Algorithm.Equal(oids.OidSHA256) && params.SaltLength == 32:
+		return oids.RSAPSSWithSHA256
+	case params.Hash.Algorithm.Equal(oids.OidSHA384) && params.SaltLength == 48:
+		return oids.RSAPSSWithSHA384
+	case params.Hash.Algorithm.Equal(oids.OidSHA512) && params.SaltLength == 64:
+		return oids.RSAPSSWithSHA512
 	}
 
-	return UnknownSignatureAlgorithm
-}
-
-var (
-	// RFC 3279, 2.3 Public Key Algorithms
-	//
-	//	pkcs-1 OBJECT IDENTIFIER ::== { iso(1) member-body(2) us(840)
-	//		rsadsi(113549) pkcs(1) 1 }
-	//
-	// rsaEncryption OBJECT IDENTIFIER ::== { pkcs1-1 1 }
-	//
-	//	id-dsa OBJECT IDENTIFIER ::== { iso(1) member-body(2) us(840)
-	//		x9-57(10040) x9cm(4) 1 }
-	oidPublicKeyRSA = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 1}
-	oidPublicKeyDSA = asn1.ObjectIdentifier{1, 2, 840, 10040, 4, 1}
-	// RFC 5480, 2.1.1 Unrestricted Algorithm Identifier and Parameters
-	//
-	//	id-ecPublicKey OBJECT IDENTIFIER ::= {
-	//		iso(1) member-body(2) us(840) ansi-X9-62(10045) keyType(2) 1 }
-	oidPublicKeyECDSA = asn1.ObjectIdentifier{1, 2, 840, 10045, 2, 1}
-	// RFC 8410, Section 3
-	//
-	//	id-X25519    OBJECT IDENTIFIER ::= { 1 3 101 110 }
-	//	id-Ed25519   OBJECT IDENTIFIER ::= { 1 3 101 112 }
-	oidPublicKeyX25519  = asn1.ObjectIdentifier{1, 3, 101, 110}
-	oidPublicKeyEd25519 = asn1.ObjectIdentifier{1, 3, 101, 112}
-)
-
-// getPublicKeyAlgorithmFromOID returns the exposed PublicKeyAlgorithm
-// identifier for public key types supported in certificates and CSRs. Marshal
-// and Parse functions may support a different set of public key types.
-func getPublicKeyAlgorithmFromOID(oid asn1.ObjectIdentifier) PublicKeyAlgorithm {
-	switch {
-	case oid.Equal(oidPublicKeyRSA):
-		return RSA
-	case oid.Equal(oidPublicKeyDSA):
-		return DSA
-	case oid.Equal(oidPublicKeyECDSA):
-		return ECDSA
-	case oid.Equal(oidPublicKeyEd25519):
-		return Ed25519
-	}
-	return UnknownPublicKeyAlgorithm
-}
-
-// RFC 5480, 2.1.1.1. Named Curve
-//
-//	secp224r1 OBJECT IDENTIFIER ::= {
-//	  iso(1) identified-organization(3) certicom(132) curve(0) 33 }
-//
-//	secp256r1 OBJECT IDENTIFIER ::= {
-//	  iso(1) member-body(2) us(840) ansi-X9-62(10045) curves(3)
-//	  prime(1) 7 }
-//
-//	secp384r1 OBJECT IDENTIFIER ::= {
-//	  iso(1) identified-organization(3) certicom(132) curve(0) 34 }
-//
-//	secp521r1 OBJECT IDENTIFIER ::= {
-//	  iso(1) identified-organization(3) certicom(132) curve(0) 35 }
-//
-// NB: secp256r1 is equivalent to prime256v1
-var (
-	oidNamedCurveP224 = asn1.ObjectIdentifier{1, 3, 132, 0, 33}
-	oidNamedCurveP256 = asn1.ObjectIdentifier{1, 2, 840, 10045, 3, 1, 7}
-	oidNamedCurveP384 = asn1.ObjectIdentifier{1, 3, 132, 0, 34}
-	oidNamedCurveP521 = asn1.ObjectIdentifier{1, 3, 132, 0, 35}
-)
-
-func namedCurveFromOID(oid asn1.ObjectIdentifier) elliptic.Curve {
-	switch {
-	case oid.Equal(oidNamedCurveP224):
-		return elliptic.P224()
-	case oid.Equal(oidNamedCurveP256):
-		return elliptic.P256()
-	case oid.Equal(oidNamedCurveP384):
-		return elliptic.P384()
-	case oid.Equal(oidNamedCurveP521):
-		return elliptic.P521()
-	}
-	return nil
-}
-
-func oidFromNamedCurve(curve elliptic.Curve) (asn1.ObjectIdentifier, bool) {
-	switch curve {
-	case elliptic.P224():
-		return oidNamedCurveP224, true
-	case elliptic.P256():
-		return oidNamedCurveP256, true
-	case elliptic.P384():
-		return oidNamedCurveP384, true
-	case elliptic.P521():
-		return oidNamedCurveP521, true
-	}
-
-	return nil, false
-}
-
-func oidFromECDHCurve(curve ecdh.Curve) (asn1.ObjectIdentifier, bool) {
-	switch curve {
-	case ecdh.X25519():
-		return oidPublicKeyX25519, true
-	case ecdh.P256():
-		return oidNamedCurveP256, true
-	case ecdh.P384():
-		return oidNamedCurveP384, true
-	case ecdh.P521():
-		return oidNamedCurveP521, true
-	}
-
-	return nil, false
+	return oids.UnknownSignatureAlgorithm
 }
 
 // KeyUsage represents the set of actions that are valid for a given key. It's
@@ -763,9 +458,9 @@ type Certificate struct {
 	RawIssuer               []byte // DER encoded Issuer
 
 	Signature          []byte
-	SignatureAlgorithm SignatureAlgorithm
+	SignatureAlgorithm oids.SignatureAlgorithm
 
-	PublicKeyAlgorithm PublicKeyAlgorithm
+	PublicKeyAlgorithm oids.PublicKeyAlgorithm
 	PublicKey          any
 
 	Version             int
@@ -935,10 +630,10 @@ var ErrUnsupportedAlgorithm = errors.New("x509: cannot verify signature: algorit
 
 // An InsecureAlgorithmError indicates that the [SignatureAlgorithm] used to
 // generate the signature is not secure, and the signature has been rejected.
-type InsecureAlgorithmError SignatureAlgorithm
+type InsecureAlgorithmError oids.SignatureAlgorithm
 
 func (e InsecureAlgorithmError) Error() string {
-	return fmt.Sprintf("x509: cannot verify signature: insecure algorithm %v", SignatureAlgorithm(e))
+	return fmt.Sprintf("x509: cannot verify signature: insecure algorithm %v", oids.SignatureAlgorithm(e))
 }
 
 // ConstraintViolationError results when a requested usage is not permitted by
@@ -980,7 +675,7 @@ func (c *Certificate) CheckSignatureFrom(parent *Certificate) error {
 		return ConstraintViolationError{}
 	}
 
-	if parent.PublicKeyAlgorithm == UnknownPublicKeyAlgorithm {
+	if parent.PublicKeyAlgorithm == oids.UnknownPublicKeyAlgorithm {
 		return ErrUnsupportedAlgorithm
 	}
 
@@ -994,7 +689,7 @@ func (c *Certificate) CheckSignatureFrom(parent *Certificate) error {
 //
 // [RSAWithMD5] signatures are rejected, while [RSAWithSHA1] and [ECDSAWithSHA1]
 // signatures are currently accepted.
-func (c *Certificate) CheckSignature(algo SignatureAlgorithm, signed, signature []byte) error {
+func (c *Certificate) CheckSignature(algo oids.SignatureAlgorithm, signed, signature []byte) error {
 	return checkSignature(algo, signed, signature, c.PublicKey, true)
 }
 
@@ -1002,27 +697,27 @@ func (c *Certificate) hasNameConstraints() bool {
 	return oidInExtensions(oidExtensionNameConstraints, c.Extensions)
 }
 
-func signaturePublicKeyAlgoMismatchError(expectedPubKeyAlgo PublicKeyAlgorithm, pubKey any) error {
+func signaturePublicKeyAlgoMismatchError(expectedPubKeyAlgo oids.PublicKeyAlgorithm, pubKey any) error {
 	return fmt.Errorf("x509: signature algorithm specifies an %s public key, but have public key of type %T", expectedPubKeyAlgo.String(), pubKey)
 }
 
 // checkSignature verifies that signature is a valid signature over signed from
 // a crypto.PublicKey.
-func checkSignature(algo SignatureAlgorithm, signed, signature []byte, publicKey crypto.PublicKey, allowSHA1 bool) (err error) {
+func checkSignature(algo oids.SignatureAlgorithm, signed, signature []byte, publicKey crypto.PublicKey, allowSHA1 bool) (err error) {
 	var hashType crypto.Hash
-	var pubKeyAlgo PublicKeyAlgorithm
+	var pubKeyAlgo oids.PublicKeyAlgorithm
 
-	for _, details := range signatureAlgorithmDetails {
-		if details.algo == algo {
-			hashType = details.hash
-			pubKeyAlgo = details.pubKeyAlgo
+	for _, details := range oids.SignatureAlgorithmDetails {
+		if details.Algo == algo {
+			hashType = details.Hash
+			pubKeyAlgo = details.PubKeyAlgo
 			break
 		}
 	}
 
 	switch hashType {
 	case crypto.Hash(0):
-		if pubKeyAlgo != Ed25519 {
+		if pubKeyAlgo != oids.Ed25519 {
 			return ErrUnsupportedAlgorithm
 		}
 	case crypto.MD5:
@@ -1044,16 +739,16 @@ func checkSignature(algo SignatureAlgorithm, signed, signature []byte, publicKey
 
 	switch pub := publicKey.(type) {
 	case *rsa.PublicKey:
-		if pubKeyAlgo != RSA {
+		if pubKeyAlgo != oids.RSA {
 			return signaturePublicKeyAlgoMismatchError(pubKeyAlgo, pub)
 		}
-		if algo.isRSAPSS() {
+		if algo.IsRSAPSS() {
 			return rsa.VerifyPSS(pub, hashType, signed, signature, &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash})
 		} else {
 			return rsa.VerifyPKCS1v15(pub, hashType, signed, signature)
 		}
 	case *ecdsa.PublicKey:
-		if pubKeyAlgo != ECDSA {
+		if pubKeyAlgo != oids.ECDSA {
 			return signaturePublicKeyAlgoMismatchError(pubKeyAlgo, pub)
 		}
 		if !ecdsa.VerifyASN1(pub, signed, signature) {
@@ -1061,7 +756,7 @@ func checkSignature(algo SignatureAlgorithm, signed, signature []byte, publicKey
 		}
 		return
 	case ed25519.PublicKey:
-		if pubKeyAlgo != Ed25519 {
+		if pubKeyAlgo != oids.Ed25519 {
 			return signaturePublicKeyAlgoMismatchError(pubKeyAlgo, pub)
 		}
 		if !ed25519.Verify(pub, signed, signature) {
@@ -1581,32 +1276,32 @@ func subjectBytes(cert *Certificate) ([]byte, error) {
 // signingParamsForKey returns the signature algorithm and its Algorithm
 // Identifier to use for signing, based on the key type. If sigAlgo is not zero
 // then it overrides the default.
-func signingParamsForKey(key crypto.Signer, sigAlgo SignatureAlgorithm) (SignatureAlgorithm, pkix.AlgorithmIdentifier, error) {
+func signingParamsForKey(key crypto.Signer, sigAlgo oids.SignatureAlgorithm) (oids.SignatureAlgorithm, pkix.AlgorithmIdentifier, error) {
 	var ai pkix.AlgorithmIdentifier
-	var pubType PublicKeyAlgorithm
-	var defaultAlgo SignatureAlgorithm
+	var pubType oids.PublicKeyAlgorithm
+	var defaultAlgo oids.SignatureAlgorithm
 
 	switch pub := key.Public().(type) {
 	case *rsa.PublicKey:
-		pubType = RSA
-		defaultAlgo = RSAWithSHA256
+		pubType = oids.RSA
+		defaultAlgo = oids.RSAWithSHA256
 
 	case *ecdsa.PublicKey:
-		pubType = ECDSA
+		pubType = oids.ECDSA
 		switch pub.Curve {
 		case elliptic.P224(), elliptic.P256():
-			defaultAlgo = ECDSAWithSHA256
+			defaultAlgo = oids.ECDSAWithSHA256
 		case elliptic.P384():
-			defaultAlgo = ECDSAWithSHA384
+			defaultAlgo = oids.ECDSAWithSHA384
 		case elliptic.P521():
-			defaultAlgo = ECDSAWithSHA512
+			defaultAlgo = oids.ECDSAWithSHA512
 		default:
 			return 0, ai, errors.New("x509: unsupported elliptic curve")
 		}
 
 	case ed25519.PublicKey:
-		pubType = Ed25519
-		defaultAlgo = PureEd25519
+		pubType = oids.Ed25519
+		defaultAlgo = oids.PureEd25519
 
 	default:
 		return 0, ai, errors.New("x509: only RSA, ECDSA and Ed25519 keys supported")
@@ -1616,18 +1311,18 @@ func signingParamsForKey(key crypto.Signer, sigAlgo SignatureAlgorithm) (Signatu
 		sigAlgo = defaultAlgo
 	}
 
-	for _, details := range signatureAlgorithmDetails {
-		if details.algo == sigAlgo {
-			if details.pubKeyAlgo != pubType {
+	for _, details := range oids.SignatureAlgorithmDetails {
+		if details.Algo == sigAlgo {
+			if details.PubKeyAlgo != pubType {
 				return 0, ai, errors.New("x509: requested SignatureAlgorithm does not match private key type")
 			}
-			if details.hash == crypto.MD5 {
+			if details.Hash == crypto.MD5 {
 				return 0, ai, errors.New("x509: signing with MD5 is not supported")
 			}
 
 			return sigAlgo, pkix.AlgorithmIdentifier{
-				Algorithm:  details.oid,
-				Parameters: details.params,
+				Algorithm:  details.Oid,
+				Parameters: details.Params,
 			}, nil
 		}
 	}
@@ -1635,11 +1330,11 @@ func signingParamsForKey(key crypto.Signer, sigAlgo SignatureAlgorithm) (Signatu
 	return 0, ai, errors.New("x509: unknown SignatureAlgorithm")
 }
 
-func signTBS(tbs []byte, key crypto.Signer, sigAlg SignatureAlgorithm, rand io.Reader) ([]byte, error) {
-	hashFunc := sigAlg.hashFunc()
+func signTBS(tbs []byte, key crypto.Signer, sigAlg oids.SignatureAlgorithm, rand io.Reader) ([]byte, error) {
+	hashFunc := sigAlg.HashFunc()
 
 	var signerOpts crypto.SignerOpts = hashFunc
-	if sigAlg.isRSAPSS() {
+	if sigAlg.IsRSAPSS() {
 		signerOpts = &rsa.PSSOptions{
 			SaltLength: rsa.PSSSaltLengthEqualsHash,
 			Hash:       hashFunc,
@@ -1768,7 +1463,7 @@ func CreateCertificate(rand io.Reader, template, parent *Certificate, pub, priv 
 	if err != nil {
 		return nil, err
 	}
-	if getPublicKeyAlgorithmFromOID(publicKeyAlgorithm.Algorithm) == UnknownPublicKeyAlgorithm {
+	if oids.GetPublicKeyAlgorithmFromOID(publicKeyAlgorithm.Algorithm) == oids.UnknownPublicKeyAlgorithm {
 		return nil, fmt.Errorf("x509: unsupported public key type: %T", pub)
 	}
 
@@ -1820,7 +1515,7 @@ func CreateCertificate(rand io.Reader, template, parent *Certificate, pub, priv 
 		Issuer:             asn1.RawValue{FullBytes: asn1Issuer},
 		Validity:           validity{template.NotBefore.UTC(), template.NotAfter.UTC()},
 		Subject:            asn1.RawValue{FullBytes: asn1Subject},
-		PublicKey:          publicKeyInfo{nil, publicKeyAlgorithm, encodedPublicKey},
+		PublicKey:          keys.PublicKeyInfo{Raw: nil, Algorithm: publicKeyAlgorithm, PublicKey: encodedPublicKey},
 		Extensions:         extensions,
 	}
 
@@ -1851,9 +1546,9 @@ type CertificateRequest struct {
 
 	Version            int
 	Signature          []byte
-	SignatureAlgorithm SignatureAlgorithm
+	SignatureAlgorithm oids.SignatureAlgorithm
 
-	PublicKeyAlgorithm PublicKeyAlgorithm
+	PublicKeyAlgorithm oids.PublicKeyAlgorithm
 	PublicKey          any
 
 	Subject pkix.Name
@@ -1883,7 +1578,7 @@ type tbsCertificateRequest struct {
 	Raw           asn1.RawContent
 	Version       int
 	Subject       asn1.RawValue
-	PublicKey     publicKeyInfo
+	PublicKey     keys.PublicKeyInfo
 	RawAttributes []asn1.RawValue `asn1:"tag:0"`
 }
 
@@ -1898,7 +1593,7 @@ type certificateRequest struct {
 // extensions in a CSR.
 var oidExtensionRequest = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 14}
 
-// newRawAttributes converts AttributeTypeAndValueSETs from a template
+/* newRawAttributes converts AttributeTypeAndValueSETs from a template
 // CertificateRequest's Attributes into tbsCertificateRequest RawAttributes.
 func newRawAttributes(attributes []pkix.AttributeTypeAndValueSET) ([]asn1.RawValue, error) {
 	var rawAttributes []asn1.RawValue
@@ -1914,9 +1609,9 @@ func newRawAttributes(attributes []pkix.AttributeTypeAndValueSET) ([]asn1.RawVal
 		return nil, errors.New("x509: failed to unmarshal raw CSR Attributes")
 	}
 	return rawAttributes, nil
-}
+}*/
 
-// parseRawAttributes Unmarshals RawAttributes into AttributeTypeAndValueSETs.
+/* parseRawAttributes Unmarshals RawAttributes into AttributeTypeAndValueSETs.
 func parseRawAttributes(rawAttributes []asn1.RawValue) []pkix.AttributeTypeAndValueSET {
 	var attributes []pkix.AttributeTypeAndValueSET
 	for _, rawAttr := range rawAttributes {
@@ -1929,7 +1624,7 @@ func parseRawAttributes(rawAttributes []asn1.RawValue) []pkix.AttributeTypeAndVa
 		}
 	}
 	return attributes
-}
+}*/
 
 // parseCSRExtensions parses the attributes from a CSR and extracts any
 // requested extensions.
@@ -2048,7 +1743,7 @@ func CreateCertificateRequest(rand io.Reader, template *CertificateRequest, priv
 	tbsCSR := tbsCertificateRequest{
 		Version: 0, // PKCS #10, RFC 2986
 		Subject: asn1.RawValue{FullBytes: asn1Subject},
-		PublicKey: publicKeyInfo{
+		PublicKey: keys.PublicKeyInfo{
 			Algorithm: publicKeyAlgorithm,
 			PublicKey: asn1.BitString{
 				Bytes:     publicKeyBytes,
@@ -2101,13 +1796,13 @@ func parseCertificateRequest(in *certificateRequest) (*CertificateRequest, error
 		Signature:          in.SignatureValue.RightAlign(),
 		SignatureAlgorithm: getSignatureAlgorithmFromAI(in.SignatureAlgorithm),
 
-		PublicKeyAlgorithm: getPublicKeyAlgorithmFromOID(in.TBSCSR.PublicKey.Algorithm.Algorithm),
+		PublicKeyAlgorithm: oids.GetPublicKeyAlgorithmFromOID(in.TBSCSR.PublicKey.Algorithm.Algorithm),
 
 		Version: in.TBSCSR.Version,
 	}
 
 	var err error
-	if out.PublicKeyAlgorithm != UnknownPublicKeyAlgorithm {
+	if out.PublicKeyAlgorithm != oids.UnknownPublicKeyAlgorithm {
 		out.PublicKey, err = parsePublicKey(&in.TBSCSR.PublicKey)
 		if err != nil {
 			return nil, err
@@ -2206,7 +1901,7 @@ type RevocationList struct {
 	// SignatureAlgorithm is used to determine the signature algorithm to be
 	// used when signing the CRL. If 0 the default algorithm for the signing
 	// key will be used.
-	SignatureAlgorithm SignatureAlgorithm
+	SignatureAlgorithm oids.SignatureAlgorithm
 
 	// RevokedCertificateEntries represents the revokedCertificates sequence in
 	// the CRL. It is used when creating a CRL and also populated when parsing a
@@ -2421,7 +2116,7 @@ func (rl *RevocationList) CheckSignatureFrom(parent *Certificate) error {
 		return ConstraintViolationError{}
 	}
 
-	if parent.PublicKeyAlgorithm == UnknownPublicKeyAlgorithm {
+	if parent.PublicKeyAlgorithm == oids.UnknownPublicKeyAlgorithm {
 		return ErrUnsupportedAlgorithm
 	}
 

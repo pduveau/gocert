@@ -16,13 +16,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pduveau/gocert/pkcs8"
 	pkix "github.com/pduveau/gocert/pkix"
 	"github.com/pduveau/gocert/x509"
 )
 
 func main() {
 	block, _ := pem.Decode([]byte(pemPrivateKey))
-	rsaPriv, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	rsaPriv, err := pkcs8.ParsePKCS1PrivateKey(block.Bytes)
 	if err != nil {
 		panic("Failed to parse private key: " + err.Error())
 	}
@@ -54,7 +55,6 @@ OFtM+xHrNK2jc+WmcSg3UJDnAI3uqMc5B+pERLq0Dc6hStehqHjUko3RnZECQEGZ
 eRYWciE+Cre5dzfZkomeXE0xBrhecV0bOq6EKWLSVE+yr6mAl05ThRK9DCfPSOpy
 F6rgN3QiyCA9J/1FluUCQQC5nX+PTU1FXx+6Ri2ZCi6EjEKMHr7gHcABhMinZYOt
 N59pra9UdVQw9jxCU9G7eMyb0jJkNACAuEwakX3gi27b
------END RSA TESTING KEY-----
-`)
+-----END RSA TESTING KEY-----`)
 
 func testingKey(s string) string { return strings.ReplaceAll(s, "TESTING KEY", "PRIVATE KEY") }

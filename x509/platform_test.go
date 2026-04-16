@@ -15,6 +15,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/pduveau/gocert/pkcs1"
 )
 
 // In order to run this test suite locally, you need to insert the test root, at
@@ -55,7 +57,7 @@ func TestPlatformVerifier(t *testing.T) {
 		t.Fatalf("failed to read test key: %s", err)
 	}
 	b, _ = pem.Decode(der)
-	testRootKey, err := ParseECPrivateKey(b.Bytes)
+	testRootKey, err := pkcs1.ParseECPrivateKey(b.Bytes)
 	if err != nil {
 		t.Fatalf("failed to parse test key: %s", err)
 	}

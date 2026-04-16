@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/pduveau/gocert/asn1"
-	"github.com/pduveau/gocert/pkcs5"
+	"github.com/pduveau/gocert/oids"
 	"github.com/pduveau/gocert/pkix"
 )
 
@@ -96,7 +96,7 @@ func TestPBMAC1(t *testing.T) {
 		Salt:       asn1.RawValue{Tag: asn1.TagOctetString, Bytes: []byte{1, 2, 3, 4, 5, 6, 7, 8}},
 		Iterations: 1000,
 		KeyLength:  32,
-		Prf:        pkix.AlgorithmIdentifier{Algorithm: pkcs5.OidHMACWithSHA512.ToAsn1()},
+		Prf:        pkix.AlgorithmIdentifier{Algorithm: oids.OidHMACWithSHA512.ToAsn1()},
 	}
 	kdfParamsBytes, err := asn1.Marshal(kdfParams)
 	if err != nil {
@@ -105,8 +105,8 @@ func TestPBMAC1(t *testing.T) {
 
 	// Create PBMAC1 parameters
 	pbmac1Params := pbmac1Params{
-		Kdf:    pkix.AlgorithmIdentifier{Algorithm: pkcs5.OidPKCS5PBKDF2, Parameters: asn1.RawValue{FullBytes: kdfParamsBytes}},
-		MacAlg: pkix.AlgorithmIdentifier{Algorithm: pkcs5.OidHMACWithSHA256.ToAsn1()},
+		Kdf:    pkix.AlgorithmIdentifier{Algorithm: oids.OidPKCS5PBKDF2, Parameters: asn1.RawValue{FullBytes: kdfParamsBytes}},
+		MacAlg: pkix.AlgorithmIdentifier{Algorithm: oids.OidHMACWithSHA256.ToAsn1()},
 	}
 	pbmac1ParamsBytes, err := asn1.Marshal(pbmac1Params)
 	if err != nil {

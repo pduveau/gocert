@@ -13,6 +13,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/pduveau/gocert/oids"
+	"github.com/pduveau/gocert/pkcs1"
 	"github.com/pduveau/gocert/pkix"
 	"github.com/pduveau/gocert/x509"
 )
@@ -83,7 +85,7 @@ type certKeyPair struct {
 	PrivateKey  *crypto.PrivateKey
 }
 
-func createTestCertificate(sigAlg x509.SignatureAlgorithm) (certKeyPair, error) {
+func createTestCertificate(sigAlg oids.SignatureAlgorithm) (certKeyPair, error) {
 	signer, err := createTestCertificateByIssuer("Eddard Stark", nil, sigAlg, true)
 	if err != nil {
 		return certKeyPair{}, err
@@ -95,7 +97,7 @@ func createTestCertificate(sigAlg x509.SignatureAlgorithm) (certKeyPair, error) 
 	return *pair, nil
 }
 
-func createTestCertificateByIssuer(name string, issuer *certKeyPair, sigAlg x509.SignatureAlgorithm, isCA bool) (*certKeyPair, error) {
+func createTestCertificateByIssuer(name string, issuer *certKeyPair, sigAlg oids.SignatureAlgorithm, isCA bool) (*certKeyPair, error) {
 	var (
 		err        error
 		priv       crypto.PrivateKey
@@ -122,81 +124,62 @@ func createTestCertificateByIssuer(name string, issuer *certKeyPair, sigAlg x509
 		issuerKey = *issuer.PrivateKey
 	}
 	switch sigAlg {
-	/*case x509.RSAWithSHA1:
-	priv = test1024Key
-	switch issuerKey.(type) {
-	case *rsa.PrivateKey:
-		template.SignatureAlgorithm = x509.RSAWithSHA1
-	case *ecdsa.PrivateKey:
-		template.SignatureAlgorithm = x509.ECDSAWithSHA1
-	}*/
-	case x509.RSAWithSHA256:
+	case oids.RSAWithSHA256:
 		priv = test2048Key
 		switch issuerKey.(type) {
 		case *rsa.PrivateKey:
-			template.SignatureAlgorithm = x509.RSAWithSHA256
+			template.SignatureAlgorithm = oids.RSAWithSHA256
 		case *ecdsa.PrivateKey:
-			template.SignatureAlgorithm = x509.ECDSAWithSHA256
+			template.SignatureAlgorithm = oids.ECDSAWithSHA256
 		}
-	case x509.RSAWithSHA384:
+	case oids.RSAWithSHA384:
 		priv = test3072Key
 		switch issuerKey.(type) {
 		case *rsa.PrivateKey:
-			template.SignatureAlgorithm = x509.RSAWithSHA384
+			template.SignatureAlgorithm = oids.RSAWithSHA384
 		case *ecdsa.PrivateKey:
-			template.SignatureAlgorithm = x509.ECDSAWithSHA384
+			template.SignatureAlgorithm = oids.ECDSAWithSHA384
 		}
-	case x509.RSAWithSHA512:
+	case oids.RSAWithSHA512:
 		priv = test4096Key
 		switch issuerKey.(type) {
 		case *rsa.PrivateKey:
-			template.SignatureAlgorithm = x509.RSAWithSHA512
+			template.SignatureAlgorithm = oids.RSAWithSHA512
 		case *ecdsa.PrivateKey:
-			template.SignatureAlgorithm = x509.ECDSAWithSHA512
+			template.SignatureAlgorithm = oids.ECDSAWithSHA512
 		}
-	/*case x509.ECDSAWithSHA1:
-	priv, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return nil, err
-	}
-	switch issuerKey.(type) {
-	case *rsa.PrivateKey:
-		template.SignatureAlgorithm = x509.RSAWithSHA1
-	case *ecdsa.PrivateKey:
-		template.SignatureAlgorithm = x509.ECDSAWithSHA1
-	}*/
-	case x509.ECDSAWithSHA256:
+	case oids.ECDSAWithSHA256:
 		priv, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 		if err != nil {
 			return nil, err
 		}
 		switch issuerKey.(type) {
 		case *rsa.PrivateKey:
-			template.SignatureAlgorithm = x509.RSAWithSHA256
+			template.SignatureAlgorithm = oids.RSAWithSHA256
 		case *ecdsa.PrivateKey:
-			template.SignatureAlgorithm = x509.ECDSAWithSHA256
+			template.SignatureAlgorithm = oids.ECDSAWithSHA256
 		}
-	case x509.ECDSAWithSHA384:
+	case oids.ECDSAWithSHA384:
 		priv, err = ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
 		if err != nil {
 			return nil, err
 		}
 		switch issuerKey.(type) {
 		case *rsa.PrivateKey:
-			template.SignatureAlgorithm = x509.RSAWithSHA384
+			template.SignatureAlgorithm = oids.RSAWithSHA384
 		case *ecdsa.PrivateKey:
-			template.SignatureAlgorithm = x509.ECDSAWithSHA384
+			template.SignatureAlgorithm = oids.ECDSAWithSHA384
 		}
-	case x509.ECDSAWithSHA512:
+	case oids.ECDSAWithSHA512:
 		priv, err = ecdsa.GenerateKey(elliptic.P521(), rand.Reader)
 		if err != nil {
 			return nil, err
 		}
 		switch issuerKey.(type) {
 		case *rsa.PrivateKey:
-			template.SignatureAlgorithm = x509.RSAWithSHA512
+			template.SignatureAlgorithm = oids.RSAWithSHA512
 		case *ecdsa.PrivateKey:
-			template.SignatureAlgorithm = x509.ECDSAWithSHA512
+			template.SignatureAlgorithm = oids.ECDSAWithSHA512
 		}
 	}
 	if isCA {
@@ -265,7 +248,7 @@ func UnmarshalTestFixture(testPEMBlock string) TestFixture {
 		case "CERTIFICATE":
 			result.Certificate, _ = x509.ParseCertificate(derBlock.Bytes)
 		case "PRIVATE KEY":
-			result.PrivateKey, _ = x509.ParsePKCS1PrivateKey(derBlock.Bytes)
+			result.PrivateKey, _ = pkcs1.ParsePKCS1PrivateKey(derBlock.Bytes)
 		}
 	}
 

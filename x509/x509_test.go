@@ -34,68 +34,11 @@ import (
 	"time"
 
 	"github.com/pduveau/gocert/asn1"
+	"github.com/pduveau/gocert/oids"
+	"github.com/pduveau/gocert/pkcs1"
+	"github.com/pduveau/gocert/pkcs8"
 	"github.com/pduveau/gocert/pkix"
 )
-
-func TestParsePKCS1PrivateKey(t *testing.T) {
-	block, _ := pem.Decode([]byte(pemPrivateKey))
-	priv, err := ParsePKCS1PrivateKey(block.Bytes)
-	if err != nil {
-		t.Errorf("Failed to parse private key: %s", err)
-		return
-	}
-	if priv.PublicKey.N.Cmp(rsaPrivateKey.PublicKey.N) != 0 ||
-		priv.PublicKey.E != rsaPrivateKey.PublicKey.E ||
-		priv.D.Cmp(rsaPrivateKey.D) != 0 ||
-		priv.Primes[0].Cmp(rsaPrivateKey.Primes[0]) != 0 ||
-		priv.Primes[1].Cmp(rsaPrivateKey.Primes[1]) != 0 {
-		t.Errorf("got:%+v want:%+v", priv, rsaPrivateKey)
-	}
-
-	// This private key includes an invalid prime that
-	// rsa.PrivateKey.Validate should reject.
-	data := []byte("0\x16\x02\x00\x02\x02\u007f\x00\x02\x0200\x02\x0200\x02\x02\x00\x01\x02\x02\u007f\x00")
-	if _, err := ParsePKCS1PrivateKey(data); err == nil {
-		t.Errorf("parsing invalid private key did not result in an error")
-	}
-
-	// A partial key without CRT values should still parse.
-	b, _ := asn1.Marshal(struct {
-		Version int
-		N       *big.Int
-		E       int
-		D       *big.Int
-		P       *big.Int
-		Q       *big.Int
-	}{
-		N: priv.N,
-		E: priv.PublicKey.E,
-		D: priv.D,
-		P: priv.Primes[0],
-		Q: priv.Primes[1],
-	})
-	p2, err := ParsePKCS1PrivateKey(b)
-	if err != nil {
-		t.Fatalf("parsing partial private key resulted in an error: %v", err)
-	}
-	if !p2.Equal(priv) {
-		t.Errorf("partial private key did not match original key")
-	}
-	if p2.Precomputed.Dp == nil || p2.Precomputed.Dq == nil || p2.Precomputed.Qinv == nil {
-		t.Errorf("precomputed values not recomputed")
-	}
-}
-
-func TestPKCS1MismatchPublicKeyFormat(t *testing.T) {
-
-	const pkixPublicKey = "30820122300d06092a864886f70d01010105000382010f003082010a0282010100dd5a0f37d3ca5232852ccc0e81eebec270e2f2c6c44c6231d852971a0aad00aa7399e9b9de444611083c59ea919a9d76c20a7be131a99045ec19a7bb452d647a72429e66b87e28be9e8187ed1d2a2a01ef3eb2360706bd873b07f2d1f1a72337aab5ec94e983e39107f52c480d404915e84d75a3db2cfd601726a128cb1d7f11492d4bdb53272e652276667220795c709b8a9b4af6489cbf48bb8173b8fb607c834a71b6e8bf2d6aab82af3c8ad7ce16d8dcf58373a6edc427f7484d09744d4c08f4e19ed07adbf6cb31243bc5d0d1145e77a08a6fc5efd208eca67d6abf2d6f38f58b6fdd7c28774fb0cc03fc4935c6e074842d2e1479d3d8787249258719f90203010001"
-	const errorContains = "use ParsePKIXPublicKey instead"
-	derBytes, _ := hex.DecodeString(pkixPublicKey)
-	_, err := ParsePKCS1PublicKey(derBytes)
-	if !strings.Contains(err.Error(), errorContains) {
-		t.Errorf("expected error containing %q, got %s", errorContains, err)
-	}
-}
 
 func TestMarshalInvalidPublicKey(t *testing.T) {
 	_, err := MarshalPKIXPublicKey(&ecdsa.PublicKey{})
@@ -161,8 +104,7 @@ FehNdaPbLP1gFyahKMsdfxFJLUvbUycuZSJ2ZnIgeVxwm4qbSvZInL9Iu4FzuPtg
 fINKcbbovy1qq4KvPIrXzhbY3PWDc6btxCf3SE0JdE1MCPThntB62/bLMSQ7xdDR
 FF53oIpvxe/SCOymfWq/LW849Ytv3Xwod0+wzAP8STXG4HSELS4UedPYeHJJJYcZ
 +QIDAQAB
------END PUBLIC KEY-----
-`
+-----END PUBLIC KEY-----`
 
 var pemPrivateKey = testingKey(`
 -----BEGIN RSA TESTING KEY-----
@@ -213,7 +155,7 @@ func init() {
 	block, _ := pem.Decode([]byte(pemPrivateKey))
 
 	var err error
-	if testPrivateKey, err = ParsePKCS1PrivateKey(block.Bytes); err != nil {
+	if testPrivateKey, err = pkcs1.ParsePKCS1PrivateKey(block.Bytes); err != nil {
 		panic("Failed to parse private key: " + err.Error())
 	}
 }
@@ -256,9 +198,9 @@ func TestMarshalRSAPrivateKey(t *testing.T) {
 		},
 	}
 
-	derBytes := MarshalPKCS1PrivateKey(priv)
+	derBytes := pkcs1.MarshalPKCS1PrivateKey(priv)
 
-	priv2, err := ParsePKCS1PrivateKey(derBytes)
+	priv2, err := pkcs1.ParsePKCS1PrivateKey(derBytes)
 	if err != nil {
 		t.Errorf("error parsing serialized key: %s", err)
 		return
@@ -283,8 +225,8 @@ func TestMarshalRSAPublicKey(t *testing.T) {
 		N: fromBase10("16346378922382193400538269749936049106320265317511766357599732575277382844051791096569333808598921852351577762718529818072849191122419410612033592401403764925096136759934497687765453905884149505175426053037420486697072448609022753683683718057795566811401938833367954642951433473337066311978821180526439641496973296037000052546108507805269279414789035461158073156772151892452251106173507240488993608650881929629163465099476849643165682709047462010581308719577053905787496296934240246311806555924593059995202856826239801816771116902778517096212527979497399966526283516447337775509777558018145573127308919204297111496233"),
 		E: 3,
 	}
-	derBytes := MarshalPKCS1PublicKey(pub)
-	pub2, err := ParsePKCS1PublicKey(derBytes)
+	derBytes := pkcs1.MarshalPKCS1PublicKey(pub)
+	pub2, err := pkcs1.ParsePKCS1PublicKey(derBytes)
 	if err != nil {
 		t.Errorf("ParsePKCS1PublicKey: %s", err)
 	}
@@ -377,7 +319,7 @@ func TestMarshalRSAPublicKey(t *testing.T) {
 
 	for i, test := range publicKeys {
 		shouldFail := len(test.expectedErrSubstr) > 0
-		pub, err := ParsePKCS1PublicKey(test.derBytes)
+		pub, err := pkcs1.ParsePKCS1PublicKey(test.derBytes)
 		if shouldFail {
 			if err == nil {
 				t.Errorf("#%d: unexpected success, got %#v", i, pub)
@@ -389,7 +331,7 @@ func TestMarshalRSAPublicKey(t *testing.T) {
 				t.Errorf("#%d: unexpected failure: %s", i, err)
 				continue
 			}
-			reserialized := MarshalPKCS1PublicKey(pub)
+			reserialized := pkcs1.MarshalPKCS1PublicKey(pub)
 			if !bytes.Equal(reserialized, test.derBytes) {
 				t.Errorf("#%d: failed to reserialize: got %x, expected %x", i, reserialized, test.derBytes)
 			}
@@ -546,7 +488,7 @@ func TestMismatchedSignatureAlgorithm(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err = cert.CheckSignature(ECDSAWithSHA256, nil, nil); err == nil {
+	if err = cert.CheckSignature(oids.ECDSAWithSHA256, nil, nil); err == nil {
 		t.Fatal("CheckSignature unexpectedly return no error")
 	}
 
@@ -634,16 +576,16 @@ func TestCreateSelfSignedCertificate(t *testing.T) {
 		name      string
 		pub, priv any
 		checkSig  bool
-		sigAlgo   SignatureAlgorithm
+		sigAlgo   oids.SignatureAlgorithm
 	}{
-		{"RSA/RSA", &testPrivateKey.PublicKey, testPrivateKey, true, RSAWithSHA384},
-		{"RSA/ECDSA", &testPrivateKey.PublicKey, ecdsaPriv, false, ECDSAWithSHA384},
-		{"ECDSA/RSA", &ecdsaPriv.PublicKey, testPrivateKey, false, RSAWithSHA256},
-		{"ECDSA/ECDSA", &ecdsaPriv.PublicKey, ecdsaPriv, true, ECDSAWithSHA256},
-		{"RSAPSS/RSAPSS", &testPrivateKey.PublicKey, testPrivateKey, true, RSAPSSWithSHA256},
-		{"ECDSA/RSAPSS", &ecdsaPriv.PublicKey, testPrivateKey, false, RSAPSSWithSHA256},
-		{"RSAPSS/ECDSA", &testPrivateKey.PublicKey, ecdsaPriv, false, ECDSAWithSHA384},
-		{"Ed25519", ed25519Pub, ed25519Priv, true, PureEd25519},
+		{"RSA/RSA", &testPrivateKey.PublicKey, testPrivateKey, true, oids.RSAWithSHA384},
+		{"RSA/ECDSA", &testPrivateKey.PublicKey, ecdsaPriv, false, oids.ECDSAWithSHA384},
+		{"ECDSA/RSA", &ecdsaPriv.PublicKey, testPrivateKey, false, oids.RSAWithSHA256},
+		{"ECDSA/ECDSA", &ecdsaPriv.PublicKey, ecdsaPriv, true, oids.ECDSAWithSHA256},
+		{"RSAPSS/RSAPSS", &testPrivateKey.PublicKey, testPrivateKey, true, oids.RSAPSSWithSHA256},
+		{"ECDSA/RSAPSS", &ecdsaPriv.PublicKey, testPrivateKey, false, oids.RSAPSSWithSHA256},
+		{"RSAPSS/ECDSA", &testPrivateKey.PublicKey, ecdsaPriv, false, oids.ECDSAWithSHA384},
+		{"Ed25519", ed25519Pub, ed25519Priv, true, oids.PureEd25519},
 	}
 
 	testExtKeyUsage := []ExtKeyUsage{ExtKeyUsageClientAuth, ExtKeyUsageServerAuth}
@@ -934,12 +876,12 @@ kBg71w/iEcSY3wUKgHGcJJrObZw7wys91I5kENljqw/Samdr3ka+jBJa
 `
 
 var ecdsaTests = []struct {
-	sigAlgo SignatureAlgorithm
+	sigAlgo oids.SignatureAlgorithm
 	pemCert string
 }{
-	{ECDSAWithSHA256, ecdsaSHA256p256CertPem},
-	{ECDSAWithSHA256, ecdsaSHA256p384CertPem},
-	{ECDSAWithSHA384, ecdsaSHA384p521CertPem},
+	{oids.ECDSAWithSHA256, ecdsaSHA256p256CertPem},
+	{oids.ECDSAWithSHA256, ecdsaSHA256p384CertPem},
+	{oids.ECDSAWithSHA384, ecdsaSHA384p521CertPem},
 }
 
 func TestECDSA(t *testing.T) {
@@ -956,7 +898,7 @@ func TestECDSA(t *testing.T) {
 		if parsedKey, ok := cert.PublicKey.(*ecdsa.PublicKey); !ok {
 			t.Errorf("%d: wanted an ECDSA public key but found: %#v", i, parsedKey)
 		}
-		if pka := cert.PublicKeyAlgorithm; pka != ECDSA {
+		if pka := cert.PublicKeyAlgorithm; pka != oids.ECDSA {
 			t.Errorf("%d: public key algorithm is %v, want ECDSA", i, pka)
 		}
 		if err = cert.CheckSignatureFrom(cert); err != nil {
@@ -1104,7 +1046,7 @@ func TestEd25519SelfSigned(t *testing.T) {
 		t.Fatalf("Failed to parse: %s", err)
 	}
 
-	if cert.PublicKeyAlgorithm != Ed25519 {
+	if cert.PublicKeyAlgorithm != oids.Ed25519 {
 		t.Fatalf("Parsed key algorithm was not Ed25519")
 	}
 	parsedKey, ok := cert.PublicKey.(ed25519.PublicKey)
@@ -1177,14 +1119,14 @@ func TestCreateCertificateRequest(t *testing.T) {
 	tests := []struct {
 		name    string
 		priv    any
-		sigAlgo SignatureAlgorithm
+		sigAlgo oids.SignatureAlgorithm
 	}{
-		{"RSA", testPrivateKey, RSAWithSHA256},
-		{"RSA-PSS-SHA256", testPrivateKey, RSAPSSWithSHA256},
-		{"ECDSA-256", ecdsa256Priv, ECDSAWithSHA256},
-		{"ECDSA-384", ecdsa384Priv, ECDSAWithSHA256},
-		{"ECDSA-521", ecdsa521Priv, ECDSAWithSHA256},
-		{"Ed25519", ed25519Priv, PureEd25519},
+		{"RSA", testPrivateKey, oids.RSAWithSHA256},
+		{"RSA-PSS-SHA256", testPrivateKey, oids.RSAPSSWithSHA256},
+		{"ECDSA-256", ecdsa256Priv, oids.ECDSAWithSHA256},
+		{"ECDSA-384", ecdsa384Priv, oids.ECDSAWithSHA256},
+		{"ECDSA-521", ecdsa521Priv, oids.ECDSAWithSHA256},
+		{"Ed25519", ed25519Priv, oids.PureEd25519},
 	}
 
 	for _, test := range tests {
@@ -1555,13 +1497,13 @@ func TestVerifyEmptyCertificate(t *testing.T) {
 
 func TestInsecureAlgorithmErrorString(t *testing.T) {
 	tests := []struct {
-		sa   SignatureAlgorithm
+		sa   oids.SignatureAlgorithm
 		want string
 	}{
-		{RSAWithMD5, "x509: cannot verify signature: insecure algorithm MD5-RSA"},
-		{RSAWithSHA1, "x509: cannot verify signature: insecure algorithm SHA1-RSA"},
-		{ECDSAWithSHA1, "x509: cannot verify signature: insecure algorithm ECDSA-SHA1"},
-		{RSAWithMD2, "x509: cannot verify signature: insecure algorithm 1"},
+		{oids.RSAWithMD5, "x509: cannot verify signature: insecure algorithm MD5-RSA"},
+		{oids.RSAWithSHA1, "x509: cannot verify signature: insecure algorithm SHA1-RSA"},
+		{oids.ECDSAWithSHA1, "x509: cannot verify signature: insecure algorithm ECDSA-SHA1"},
+		{oids.RSAWithMD2, "x509: cannot verify signature: insecure algorithm 1"},
 		{-1, "x509: cannot verify signature: insecure algorithm -1"},
 		{0, "x509: cannot verify signature: insecure algorithm 0"},
 		{9999, "x509: cannot verify signature: insecure algorithm 9999"},
@@ -1615,8 +1557,8 @@ func TestMD5(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to parse certificate: %s", err)
 	}
-	if sa := cert.SignatureAlgorithm; sa != RSAWithMD5 {
-		t.Errorf("signature algorithm is %v, want %v", sa, RSAWithMD5)
+	if sa := cert.SignatureAlgorithm; sa != oids.RSAWithMD5 {
+		t.Errorf("signature algorithm is %v, want %v", sa, oids.RSAWithMD5)
 	}
 	if err = cert.CheckSignatureFrom(cert); err == nil {
 		t.Fatalf("certificate verification succeeded incorrectly")
@@ -1632,8 +1574,8 @@ func TestSHA1(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to parse certificate: %s", err)
 	}
-	if sa := cert.SignatureAlgorithm; sa != ECDSAWithSHA1 {
-		t.Errorf("signature algorithm is %v, want %v", sa, ECDSAWithSHA1)
+	if sa := cert.SignatureAlgorithm; sa != oids.ECDSAWithSHA1 {
+		t.Errorf("signature algorithm is %v, want %v", sa, oids.ECDSAWithSHA1)
 	}
 	if err = cert.CheckSignatureFrom(cert); err == nil {
 		t.Fatalf("certificate verification succeeded incorrectly")
@@ -1687,7 +1629,7 @@ func TestISOOIDInCertificate(t *testing.T) {
 	block, _ := pem.Decode([]byte(certISOOID))
 	if cert, err := ParseCertificate(block.Bytes); err != nil {
 		t.Errorf("certificate with ISO OID failed to parse: %s", err)
-	} else if cert.SignatureAlgorithm == UnknownSignatureAlgorithm {
+	} else if cert.SignatureAlgorithm == oids.UnknownSignatureAlgorithm {
 		t.Errorf("ISO OID not recognised in certificate")
 	}
 }
@@ -2131,27 +2073,6 @@ func TestMultipleURLsInCRLDP(t *testing.T) {
 	}
 }
 
-const hexPKCS1TestPKCS8Key = "30820278020100300d06092a864886f70d0101010500048202623082025e02010002818100cfb1b5bf9685ffa97b4f99df4ff122b70e59ac9b992f3bc2b3dde17d53c1a34928719b02e8fd17839499bfbd515bd6ef99c7a1c47a239718fe36bfd824c0d96060084b5f67f0273443007a24dfaf5634f7772c9346e10eb294c2306671a5a5e719ae24b4de467291bc571014b0e02dec04534d66a9bb171d644b66b091780e8d020301000102818100b595778383c4afdbab95d2bfed12b3f93bb0a73a7ad952f44d7185fd9ec6c34de8f03a48770f2009c8580bcd275e9632714e9a5e3f32f29dc55474b2329ff0ebc08b3ffcb35bc96e6516b483df80a4a59cceb71918cbabf91564e64a39d7e35dce21cb3031824fdbc845dba6458852ec16af5dddf51a8397a8797ae0337b1439024100ea0eb1b914158c70db39031dd8904d6f18f408c85fbbc592d7d20dee7986969efbda081fdf8bc40e1b1336d6b638110c836bfdc3f314560d2e49cd4fbde1e20b024100e32a4e793b574c9c4a94c8803db5152141e72d03de64e54ef2c8ed104988ca780cd11397bc359630d01b97ebd87067c5451ba777cf045ca23f5912f1031308c702406dfcdbbd5a57c9f85abc4edf9e9e29153507b07ce0a7ef6f52e60dcfebe1b8341babd8b789a837485da6c8d55b29bbb142ace3c24a1f5b54b454d01b51e2ad03024100bd6a2b60dee01e1b3bfcef6a2f09ed027c273cdbbaf6ba55a80f6dcc64e4509ee560f84b4f3e076bd03b11e42fe71a3fdd2dffe7e0902c8584f8cad877cdc945024100aa512fa4ada69881f1d8bb8ad6614f192b83200aef5edf4811313d5ef30a86cbd0a90f7b025c71ea06ec6b34db6306c86b1040670fd8654ad7291d066d06d031"
-const hexPKCS1TestECKey = "3081a40201010430bdb9839c08ee793d1157886a7a758a3c8b2a17a4df48f17ace57c72c56b4723cf21dcda21d4e1ad57ff034f19fcfd98ea00706052b81040022a16403620004feea808b5ee2429cfcce13c32160e1c960990bd050bb0fdf7222f3decd0a55008e32a6aa3c9062051c4cba92a7a3b178b24567412d43cdd2f882fa5addddd726fe3e208d2c26d733a773a597abb749714df7256ead5105fa6e7b3650de236b50"
-
-var pkcs1MismatchKeyTests = []struct {
-	hexKey        string
-	errorContains string
-}{
-	{hexKey: hexPKCS1TestPKCS8Key, errorContains: "use ParsePKCS8PrivateKey instead"},
-	{hexKey: hexPKCS1TestECKey, errorContains: "use ParseECPrivateKey instead"},
-}
-
-func TestPKCS1MismatchKeyFormat(t *testing.T) {
-	for i, test := range pkcs1MismatchKeyTests {
-		derBytes, _ := hex.DecodeString(test.hexKey)
-		_, err := ParsePKCS1PrivateKey(derBytes)
-		if !strings.Contains(err.Error(), test.errorContains) {
-			t.Errorf("#%d: expected error containing %q, got %s", i, test.errorContains, err)
-		}
-	}
-}
-
 func TestCreateRevocationList(t *testing.T) {
 	ec256Priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -2170,7 +2091,7 @@ func TestCreateRevocationList(t *testing.T) {
 
 	utf8KeyStr := "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCZe+nRY2OxnPJJZPsJ7nN7BA0qry6N5kamEnjhV2vC639vpNwLiJgQ12zn7v/c9jAGWWncrlNGkJxp9LF2Emy8Dv/NaUcc1FwmEks232qwpY/q6QjYjDo6YUyDqQlDx/rtFeRPwdHe/RSoT6VasDSD6hG6Ph6su1861KmeXiewT9GzarFsQsVYB/sXmoyofh1TK95Yqs1Px4jphA37AGDQwCOgpG8MmcGG6j4i+9dfwCrVBZRwEY8reiv8SHHLl/+ASZJRfIRTUe3+8BO3ain55FoQSkF0ZG874OsqOVxBXZcw3XwD0sBfqELMfjewbJ7zt2PtFn3KP7Bo5g1ozuQVAgMBAAECggEAIscjKiD9PAe2Fs9c2tk/LYazfRKI1/pv072nylfGwToffCq8+ZgP7PEDamKLc4QNScME685MbFbkOlYJyBlQriQv7lmGlY/A+Zd3l410XWaGf9IiAP91Sjk13zd0M/micApf23qtlXt/LMwvSadXnvRw4+SjirxCTdBWRt5K2/ZAN550v7bHFk1EZc3UBF6sOoNsjQWh9Ek79UmQYJBPiZDBHO7O2fh2GSIbUutTma+Tb2i1QUZzg+AG3cseF3p1i3uhNrCh+p+01bJSzGTQsRod2xpD1tpWwR3kIftCOmD1XnhpaBQi7PXjEuNbfucaftnoYj2ShDdmgD5RkkbTAQKBgQC8Ghu5MQ/yIeqXg9IpcSxuWtUEAEfK33/cC/IvuntgbNEnWQm5Lif4D6a9zjkxiCS+9HhrUu5U2EV8NxOyaqmtub3Np1Z5mPuI9oiZ119bjUJd4X+jKOTaePWvOv/rL/pTHYqzXohVMrXy+DaTIq4lOcv3n72SuhuTcKU95rhKtQKBgQDQ4t+HsRZd5fJzoCgRQhlNK3EbXQDv2zXqMW3GfpF7GaDP18I530inRURSJa++rvi7/MCFg/TXVS3QC4HXtbzTYTqhE+VHzSr+/OcsqpLE8b0jKBDv/SBkz811PUJDs3LsX31DT3K0zUpMpNSd/5SYTyJKef9L6mxmwlC1S2Yv4QKBgQC57SiYDdnQIRwrtZ2nXvlm/xttAAX2jqJoU9qIuNA4yHaYaRcGVowlUvsiw9OelQ6VPTpGA0wWy0src5lhkrKzSFRHEe+U89U1VVJCljLoYKFIAJvUH5jOJh/am/vYca0COMIfeAJUDHLyfcwb9XyiyRVGZzvP62tUelSq8gIZvQKBgCAHeaDzzWsudCO4ngwvZ3PGwnwgoaElqrmzRJLYG3SVtGvKOJTpINnNLDGwZ6dEaw1gLyEJ38QY4oJxEULDMiXzVasXQuPkmMAqhUP7D7A1JPw8C4TQ+mOa3XUppHx/CpMl/S4SA5OnmsnvyE5Fv0IveCGVXUkFtAN5rihuXEfhAoGANUkuGU3A0Upk2mzv0JTGP4H95JFG93cqnyPNrYs30M6RkZNgTW27yyr+Nhs4/cMdrg1AYTB0+6ItQWSDmYLs7JEbBE/8L8fdD1irIcygjIHE9nJh96TgZCt61kVGLE8758lOdmoB2rZOpGwi16QIhdQb+IyozYqfX+lQUojL/W0="
 	utf8KeyBytes, _ := base64.StdEncoding.DecodeString(utf8KeyStr)
-	utf8KeyRaw, _ := ParsePKCS8PrivateKey(utf8KeyBytes)
+	utf8KeyRaw, _ := pkcs8.ParsePKCS8PrivateKey(utf8KeyBytes)
 	utf8Key := utf8KeyRaw.(crypto.Signer)
 
 	tests := []struct {
@@ -2346,7 +2267,7 @@ func TestCreateRevocationList(t *testing.T) {
 				SubjectKeyId: []byte{1, 2, 3},
 			},
 			template: &RevocationList{
-				SignatureAlgorithm: ECDSAWithSHA512,
+				SignatureAlgorithm: oids.ECDSAWithSHA512,
 				RevokedCertificateEntries: []RevocationListEntry{
 					{
 						SerialNumber:   big.NewInt(2),
@@ -2429,7 +2350,7 @@ func TestCreateRevocationList(t *testing.T) {
 				t.Fatalf("Failed to parse generated CRL: %s", err)
 			}
 
-			if tc.template.SignatureAlgorithm != UnknownSignatureAlgorithm &&
+			if tc.template.SignatureAlgorithm != oids.UnknownSignatureAlgorithm &&
 				parsedCRL.SignatureAlgorithm != tc.template.SignatureAlgorithm {
 				t.Fatalf("SignatureAlgorithm mismatch: got %v; want %v.", parsedCRL.SignatureAlgorithm,
 					tc.template.SignatureAlgorithm)
@@ -2542,11 +2463,11 @@ func TestRSAPSAParameters(t *testing.T) {
 
 		switch hashFunc {
 		case crypto.SHA256:
-			hashOID = oidSHA256
+			hashOID = oids.OidSHA256
 		case crypto.SHA384:
-			hashOID = oidSHA384
+			hashOID = oids.OidSHA384
 		case crypto.SHA512:
-			hashOID = oidSHA512
+			hashOID = oids.OidSHA512
 		}
 
 		params := pssParameters{
@@ -2555,7 +2476,7 @@ func TestRSAPSAParameters(t *testing.T) {
 				Parameters: asn1.NullRawValue,
 			},
 			MGF: pkix.AlgorithmIdentifier{
-				Algorithm: oidMGF1,
+				Algorithm: oids.OidMGF1,
 			},
 			SaltLength:   hashFunc.Size(),
 			TrailerField: 1,
@@ -2580,13 +2501,13 @@ func TestRSAPSAParameters(t *testing.T) {
 		return serialized
 	}
 
-	for _, detail := range signatureAlgorithmDetails {
-		if !detail.isRSAPSS {
+	for _, detail := range oids.SignatureAlgorithmDetails {
+		if !detail.IsRSAPSS {
 			continue
 		}
-		generated := generateParams(detail.hash)
-		if !bytes.Equal(detail.params.FullBytes, generated) {
-			t.Errorf("hardcoded parameters for %s didn't match generated parameters: got (generated) %x, wanted (hardcoded) %x", detail.hash, generated, detail.params.FullBytes)
+		generated := generateParams(detail.Hash)
+		if !bytes.Equal(detail.Params.FullBytes, generated) {
+			t.Errorf("hardcoded parameters for %s didn't match generated parameters: got (generated) %x, wanted (hardcoded) %x", detail.Hash, generated, detail.Params.FullBytes)
 		}
 	}
 }
@@ -2832,7 +2753,7 @@ func TestCreateCertificateBrokenSigner(t *testing.T) {
 }
 
 func TestCreateCertificateLegacy(t *testing.T) {
-	sigAlg := RSAWithMD5
+	sigAlg := oids.RSAWithMD5
 	template := &Certificate{
 		SerialNumber: big.NewInt(10),
 		San: &SubjectAlternativeName{
@@ -3305,7 +3226,7 @@ func TestDisableSHA1ForCertOnly(t *testing.T) {
 		SerialNumber:          big.NewInt(1),
 		NotBefore:             time.Now().Add(-time.Hour),
 		NotAfter:              time.Now().Add(time.Hour),
-		SignatureAlgorithm:    RSAWithSHA1,
+		SignatureAlgorithm:    oids.RSAWithSHA1,
 		BasicConstraintsValid: true,
 		IsCA:                  true,
 		KeyUsage:              KeyUsageCertSign | KeyUsageCRLSign,
@@ -3327,7 +3248,7 @@ func TestDisableSHA1ForCertOnly(t *testing.T) {
 	}
 
 	crlDER, err := CreateRevocationList(rand.Reader, &RevocationList{
-		SignatureAlgorithm: RSAWithSHA1,
+		SignatureAlgorithm: oids.RSAWithSHA1,
 		Number:             big.NewInt(1),
 		ThisUpdate:         time.Now().Add(-time.Hour),
 		NextUpdate:         time.Now().Add(time.Hour),
@@ -3353,7 +3274,7 @@ func TestDisableSHA1ForCertOnly(t *testing.T) {
 		t.Fatalf("failed to decode OCSP response TBS hex: %s", err)
 	}
 
-	err = cert.CheckSignature(RSAWithSHA1, ocspTBS, nil)
+	err = cert.CheckSignature(oids.RSAWithSHA1, ocspTBS, nil)
 	if err != rsa.ErrVerification {
 		t.Errorf("unexpected error: %s", err)
 	}
@@ -3393,7 +3314,7 @@ func TestRevocationListCheckSignatureFrom(t *testing.T) {
 				Version:               3,
 				BasicConstraintsValid: true,
 				IsCA:                  true,
-				PublicKeyAlgorithm:    ECDSA,
+				PublicKeyAlgorithm:    oids.ECDSA,
 				PublicKey:             goodKey.Public(),
 			},
 		},
@@ -3403,7 +3324,7 @@ func TestRevocationListCheckSignatureFrom(t *testing.T) {
 				Version:               3,
 				BasicConstraintsValid: true,
 				IsCA:                  true,
-				PublicKeyAlgorithm:    ECDSA,
+				PublicKeyAlgorithm:    oids.ECDSA,
 				PublicKey:             goodKey.Public(),
 				KeyUsage:              KeyUsageCRLSign,
 			},
@@ -3414,7 +3335,7 @@ func TestRevocationListCheckSignatureFrom(t *testing.T) {
 				Version:               3,
 				BasicConstraintsValid: true,
 				IsCA:                  true,
-				PublicKeyAlgorithm:    ECDSA,
+				PublicKeyAlgorithm:    oids.ECDSA,
 				PublicKey:             goodKey.Public(),
 				KeyUsage:              KeyUsageCertSign,
 			},
@@ -3424,7 +3345,7 @@ func TestRevocationListCheckSignatureFrom(t *testing.T) {
 			name: "invalid issuer, no basic constraints/ca",
 			issuer: &Certificate{
 				Version:            3,
-				PublicKeyAlgorithm: ECDSA,
+				PublicKeyAlgorithm: oids.ECDSA,
 				PublicKey:          goodKey.Public(),
 			},
 			err: "x509: invalid signature: parent certificate cannot sign this kind of certificate",
@@ -3435,7 +3356,7 @@ func TestRevocationListCheckSignatureFrom(t *testing.T) {
 				Version:               3,
 				BasicConstraintsValid: true,
 				IsCA:                  true,
-				PublicKeyAlgorithm:    UnknownPublicKeyAlgorithm,
+				PublicKeyAlgorithm:    oids.UnknownPublicKeyAlgorithm,
 				PublicKey:             goodKey.Public(),
 			},
 			err: "x509: cannot verify signature: algorithm unimplemented",
@@ -3446,7 +3367,7 @@ func TestRevocationListCheckSignatureFrom(t *testing.T) {
 				Version:               3,
 				BasicConstraintsValid: true,
 				IsCA:                  true,
-				PublicKeyAlgorithm:    ECDSA,
+				PublicKeyAlgorithm:    oids.ECDSA,
 				PublicKey:             badKey.Public(),
 			},
 			err: "x509: ECDSA verification failure",
@@ -3456,7 +3377,7 @@ func TestRevocationListCheckSignatureFrom(t *testing.T) {
 	crlIssuer := &Certificate{
 		BasicConstraintsValid: true,
 		IsCA:                  true,
-		PublicKeyAlgorithm:    ECDSA,
+		PublicKeyAlgorithm:    oids.ECDSA,
 		PublicKey:             goodKey.Public(),
 		KeyUsage:              KeyUsageCRLSign,
 		SubjectKeyId:          []byte{1, 2, 3},
@@ -3736,7 +3657,7 @@ func (ms *messageSigner) SignMessage(rand io.Reader, msg []byte, opts crypto.Sig
 
 func TestMessageSigner(t *testing.T) {
 	template := Certificate{
-		SignatureAlgorithm:    RSAWithSHA256,
+		SignatureAlgorithm:    oids.RSAWithSHA256,
 		SerialNumber:          big.NewInt(1),
 		Subject:               pkix.Name{}.AppendRDN(pkix.OidCommonName, "Cert"),
 		NotBefore:             time.Unix(1000, 0),
@@ -3790,3 +3711,5 @@ func TestEKUOIDS(t *testing.T) {
 		}
 	}
 }
+
+func testingKey(s string) string { return strings.ReplaceAll(s, "TESTING KEY", "PRIVATE KEY") }

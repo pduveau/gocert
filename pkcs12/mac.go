@@ -14,6 +14,7 @@ import (
 	"hash"
 
 	"github.com/pduveau/gocert/asn1"
+	"github.com/pduveau/gocert/oids"
 	"github.com/pduveau/gocert/pkcs5"
 	"github.com/pduveau/gocert/pkix"
 )
@@ -48,7 +49,7 @@ func doPBMAC1(algorithm pkix.AlgorithmIdentifier, message, password []byte) ([]b
 	}
 
 	// Only PBKDF2 is supported as KDF
-	if !params.KeyDerivationFunc.Algorithm.Equal(pkcs5.OidPKCS5PBKDF2) {
+	if !params.KeyDerivationFunc.Algorithm.Equal(oids.OidPKCS5PBKDF2) {
 		return nil, fmt.Errorf("PKCS12: PBMAC1 KDF algorithm %s is not supported", params.KeyDerivationFunc.Algorithm.String())
 	}
 
@@ -65,11 +66,11 @@ func doPBMAC1(algorithm pkix.AlgorithmIdentifier, message, password []byte) ([]b
 	// Determine MAC algorithm
 	var hFn func() hash.Hash
 	switch {
-	case params.EncryptionScheme.Algorithm.Equal(pkcs5.OidHMACWithSHA1.ToAsn1()):
+	case params.EncryptionScheme.Algorithm.Equal(oids.OidHMACWithSHA1.ToAsn1()):
 		hFn = sha1.New
-	case params.EncryptionScheme.Algorithm.Equal(pkcs5.OidHMACWithSHA256.ToAsn1()):
+	case params.EncryptionScheme.Algorithm.Equal(oids.OidHMACWithSHA256.ToAsn1()):
 		hFn = sha256.New
-	case params.EncryptionScheme.Algorithm.Equal(pkcs5.OidHMACWithSHA512.ToAsn1()):
+	case params.EncryptionScheme.Algorithm.Equal(oids.OidHMACWithSHA512.ToAsn1()):
 		hFn = sha512.New
 	default:
 		return nil, NotImplementedError("PKCS12: PBMAC1 MAC algorithm " + params.EncryptionScheme.Algorithm.String() + " is not supported")

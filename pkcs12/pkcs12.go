@@ -24,6 +24,7 @@ import (
 	"github.com/pduveau/gocert/asn1"
 	"github.com/pduveau/gocert/pkcs5"
 	"github.com/pduveau/gocert/pkcs7"
+	"github.com/pduveau/gocert/pkcs8"
 	"github.com/pduveau/gocert/pkix"
 	"github.com/pduveau/gocert/x509"
 )
@@ -151,7 +152,7 @@ func DecodeChain(pfxData []byte, password string) (privateKey interface{}, certi
 				return nil, nil, nil, err
 			}
 
-			if privateKey, err = x509.ParsePKCS8PrivateKey(bag.Value.Bytes); err != nil {
+			if privateKey, err = pkcs8.ParsePKCS8PrivateKey(bag.Value.Bytes); err != nil {
 				return nil, nil, nil, err
 			}
 		case bag.Id.Equal(oidPKCS8ShroundedKeyBag):
@@ -164,7 +165,7 @@ func DecodeChain(pfxData []byte, password string) (privateKey interface{}, certi
 			if err != nil {
 				return nil, nil, nil, err
 			}
-			privateKey, _, err = x509.ParsePKCS8EncryptedPrivateKey(bag.Value.Bytes, []byte(originalPassword))
+			privateKey, _, err = pkcs8.ParsePKCS8EncryptedPrivateKey(bag.Value.Bytes, []byte(originalPassword))
 			if err != nil {
 				return nil, nil, nil, err
 			}
@@ -358,7 +359,7 @@ func Encode(pbmac1 bool, privateKey interface{}, certificate *x509.Certificate, 
 	if err != nil {
 		return nil, err
 	}
-	shroudedKey, err = x509.MarshalPKCS8EncryptedPrivateKey(privateKey, []byte(originalPassword), opts)
+	shroudedKey, err = pkcs8.MarshalPKCS8EncryptedPrivateKey(privateKey, []byte(originalPassword), opts)
 
 	if err != nil {
 		return nil, err

@@ -1,8 +1,4 @@
-// Copyright 2012 The Go Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file.
-
-package x509
+package keys
 
 import (
 	"crypto/ecdh"
@@ -12,49 +8,14 @@ import (
 	"fmt"
 
 	"github.com/pduveau/gocert/asn1"
+	"github.com/pduveau/gocert/oids"
 )
 
 const ecPrivKeyVersion = 1
 
-// ecPrivateKey reflects an ASN.1 Elliptic Curve Private Key Structure.
-// References:
-//
-//	RFC 5915
-//	SEC1 - http://www.secg.org/sec1-v2.pdf
-//
-// Per RFC 5915 the NamedCurveOID is marked as ASN.1 OPTIONAL, however in
-// most cases it is not.
-type ecPrivateKey struct {
-	Version       int
-	PrivateKey    []byte
-	NamedCurveOID asn1.ObjectIdentifier `asn1:"optional,explicit,tag:0"`
-	PublicKey     asn1.BitString        `asn1:"optional,explicit,tag:1"`
-}
-
-// ParseECPrivateKey parses an EC private key in SEC 1, ASN.1 DER form.
-//
-// This kind of key is commonly encoded in PEM blocks of type "EC PRIVATE KEY".
-func ParseECPrivateKey(der []byte) (*ecdsa.PrivateKey, error) {
-	return parseECPrivateKey(nil, der)
-}
-
-// MarshalECPrivateKey converts an EC private key to SEC 1, ASN.1 DER form.
-//
-// This kind of key is commonly encoded in PEM blocks of type "EC PRIVATE KEY".
-// For a more flexible key format which is not EC specific, use
-// [MarshalPKCS8PrivateKey].
-func MarshalECPrivateKey(key *ecdsa.PrivateKey) ([]byte, error) {
-	oid, ok := oidFromNamedCurve(key.Curve)
-	if !ok {
-		return nil, errors.New("x509: unknown elliptic curve")
-	}
-
-	return marshalECPrivateKeyWithOID(key, oid)
-}
-
 // marshalECPrivateKeyWithOID marshals an EC private key into ASN.1, DER format and
 // sets the curve ID to the given OID, or omits it if OID is nil.
-func marshalECPrivateKeyWithOID(key *ecdsa.PrivateKey, oid asn1.ObjectIdentifier) ([]byte, error) {
+func MarshalECPrivateKeyWithOID(key *ecdsa.PrivateKey, oid asn1.ObjectIdentifier) ([]byte, error) {
 	privateKey, err := key.Bytes()
 	if err != nil {
 		return nil, err
@@ -63,7 +24,7 @@ func marshalECPrivateKeyWithOID(key *ecdsa.PrivateKey, oid asn1.ObjectIdentifier
 	if err != nil {
 		return nil, err
 	}
-	return asn1.Marshal(ecPrivateKey{
+	return asn1.Marshal(EcPrivateKey{
 		Version:       1,
 		PrivateKey:    privateKey,
 		NamedCurveOID: oid,
@@ -73,8 +34,8 @@ func marshalECPrivateKeyWithOID(key *ecdsa.PrivateKey, oid asn1.ObjectIdentifier
 
 // marshalECDHPrivateKey marshals an EC private key into ASN.1, DER format
 // suitable for NIST curves.
-func marshalECDHPrivateKey(key *ecdh.PrivateKey) ([]byte, error) {
-	return asn1.Marshal(ecPrivateKey{
+func MarshalECDHPrivateKey(key *ecdh.PrivateKey) ([]byte, error) {
+	return asn1.Marshal(EcPrivateKey{
 		Version:    1,
 		PrivateKey: key.Bytes(),
 		PublicKey:  asn1.BitString{Bytes: key.PublicKey().Bytes()},
@@ -85,13 +46,13 @@ func marshalECDHPrivateKey(key *ecdh.PrivateKey) ([]byte, error) {
 // The OID for the named curve may be provided from another source (such as
 // the PKCS8 container) - if it is provided then use this instead of the OID
 // that may exist in the EC private key structure.
-func parseECPrivateKey(namedCurveOID *asn1.ObjectIdentifier, der []byte) (key *ecdsa.PrivateKey, err error) {
-	var privKey ecPrivateKey
+func ParseECPrivateKey(namedCurveOID *asn1.ObjectIdentifier, der []byte) (key *ecdsa.PrivateKey, err error) {
+	var privKey EcPrivateKey
 	if _, err := asn1.Unmarshal(der, &privKey); err != nil {
-		if _, err := asn1.Unmarshal(der, &pkcs8{}); err == nil {
+		if _, err := asn1.Unmarshal(der, &Pkcs8{}); err == nil {
 			return nil, errors.New("x509: failed to parse private key (use ParsePKCS8PrivateKey instead for this key format)")
 		}
-		if _, err := asn1.Unmarshal(der, &pkcs1PrivateKey{}); err == nil {
+		if _, err := asn1.Unmarshal(der, &Pkcs1PrivateKey{}); err == nil {
 			return nil, errors.New("x509: failed to parse private key (use ParsePKCS1PrivateKey instead for this key format)")
 		}
 		return nil, errors.New("x509: failed to parse EC private key: " + err.Error())
@@ -102,9 +63,9 @@ func parseECPrivateKey(namedCurveOID *asn1.ObjectIdentifier, der []byte) (key *e
 
 	var curve elliptic.Curve
 	if namedCurveOID != nil {
-		curve = namedCurveFromOID(*namedCurveOID)
+		curve = oids.NamedCurveFromOID(*namedCurveOID)
 	} else {
-		curve = namedCurveFromOID(privKey.NamedCurveOID)
+		curve = oids.NamedCurveFromOID(privKey.NamedCurveOID)
 	}
 	if curve == nil {
 		return nil, errors.New("x509: unknown elliptic curve")

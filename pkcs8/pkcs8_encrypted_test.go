@@ -1,4 +1,4 @@
-package x509_test
+package pkcs8_test
 
 import (
 	"crypto/ecdsa"
@@ -8,8 +8,9 @@ import (
 	"encoding/pem"
 	"testing"
 
+	"github.com/pduveau/gocert/oids"
 	"github.com/pduveau/gocert/pkcs5"
-	"github.com/pduveau/gocert/x509"
+	"github.com/pduveau/gocert/pkcs8"
 )
 
 const rsa2048 = `-----BEGIN PRIVATE KEY-----
@@ -170,11 +171,11 @@ func TestParsePKCS8PrivateKeyRSA(t *testing.T) {
 	for i, key := range keyList {
 		t.Run(key.name, func(t *testing.T) {
 			block, _ := pem.Decode([]byte(key.encrypted))
-			_, _, err := x509.ParsePKCS8EncryptedPrivateKey(block.Bytes, []byte("password"))
+			_, _, err := pkcs8.ParsePKCS8EncryptedPrivateKey(block.Bytes, []byte("password"))
 			if err != nil {
 				t.Errorf("%d: ParsePKCS8PrivateKeyRSA returned: %s", i, err)
 			}
-			_, _, err = x509.ParsePKCS8EncryptedPrivateKey(block.Bytes, []byte("wrong password"))
+			_, _, err = pkcs8.ParsePKCS8EncryptedPrivateKey(block.Bytes, []byte("wrong password"))
 			if err == nil {
 				t.Errorf("%d: should have failed", i)
 			}
@@ -197,11 +198,11 @@ func TestParsePKCS8PrivateKeyECDSA(t *testing.T) {
 	for i, key := range keyList {
 		t.Run(key.name, func(t *testing.T) {
 			block, _ := pem.Decode([]byte(key.encrypted))
-			_, _, err := x509.ParsePKCS8EncryptedPrivateKey(block.Bytes, []byte("password"))
+			_, _, err := pkcs8.ParsePKCS8EncryptedPrivateKey(block.Bytes, []byte("password"))
 			if err != nil {
 				t.Errorf("%d: ParsePKCS8PrivateKeyECDSA returned: %s", i, err)
 			}
-			_, _, err = x509.ParsePKCS8EncryptedPrivateKey(block.Bytes, []byte("wrong password"))
+			_, _, err = pkcs8.ParsePKCS8EncryptedPrivateKey(block.Bytes, []byte("wrong password"))
 			if err == nil {
 				t.Errorf("%d: should have failed", i)
 			}
@@ -256,22 +257,22 @@ func TestParsePKCS8PrivateKey(t *testing.T) {
 	for i, key := range keyList {
 		t.Run(key.name, func(t *testing.T) {
 			block, _ := pem.Decode([]byte(key.encrypted))
-			_, _, err := x509.ParsePKCS8EncryptedPrivateKey(block.Bytes, key.password)
+			_, _, err := pkcs8.ParsePKCS8EncryptedPrivateKey(block.Bytes, key.password)
 			if err != nil {
 				t.Errorf("%d: ParsePKCS8PrivateKey returned: %s", i, err)
 			}
-			_, _, err = x509.ParsePKCS8EncryptedPrivateKey(block.Bytes, []byte("wrong password"))
+			_, _, err = pkcs8.ParsePKCS8EncryptedPrivateKey(block.Bytes, []byte("wrong password"))
 			if err == nil {
 				t.Errorf("%d: should have failed", i)
 			}
-			_, err = x509.ParsePKCS8PrivateKey(block.Bytes)
+			_, err = pkcs8.ParsePKCS8PrivateKey(block.Bytes)
 			if err == nil {
 				t.Errorf("%d: should have failed", i)
 			}
 
 			if key.clear != "" {
 				block, _ = pem.Decode([]byte(key.clear))
-				_, err = x509.ParsePKCS8PrivateKey(block.Bytes)
+				_, err = pkcs8.ParsePKCS8PrivateKey(block.Bytes)
 				if err != nil {
 					t.Errorf("%d: ParsePKCS8PrivateKey returned: %s", i, err)
 				}
@@ -292,24 +293,24 @@ func TestMarshalPrivateKey(t *testing.T) {
 		{
 			password: []byte("password"),
 			opts: &pkcs5.Opts{
-				Cipher:    mustCipher(pkcs5.NewCipher(pkcs5.OidAES128CBC)),
-				KDFParams: pkcs5.NewPbkdf2Params(2048, pkcs5.OidHMACWithSHA256),
+				Cipher:    mustCipher(pkcs5.NewCipher(oids.OidAES128CBC)),
+				KDFParams: pkcs5.NewPbkdf2Params(2048, oids.OidHMACWithSHA256),
 				SaltSize:  8,
 			},
 		},
 		{
 			password: []byte("password"),
 			opts: &pkcs5.Opts{
-				Cipher:    mustCipher(pkcs5.NewCipher(pkcs5.OidAES192CBC)),
-				KDFParams: pkcs5.NewPbkdf2Params(1000, pkcs5.OidHMACWithSHA256),
+				Cipher:    mustCipher(pkcs5.NewCipher(oids.OidAES192CBC)),
+				KDFParams: pkcs5.NewPbkdf2Params(1000, oids.OidHMACWithSHA256),
 				SaltSize:  8,
 			},
 		},
 		{
 			password: []byte("password"),
 			opts: &pkcs5.Opts{
-				Cipher:    mustCipher(pkcs5.NewCipher(pkcs5.OidAES256CBC)),
-				KDFParams: pkcs5.NewPbkdf2Params(2000, pkcs5.OidHMACWithSHA256),
+				Cipher:    mustCipher(pkcs5.NewCipher(oids.OidAES256CBC)),
+				KDFParams: pkcs5.NewPbkdf2Params(2000, oids.OidHMACWithSHA256),
 				SaltSize:  16,
 			},
 		},
@@ -352,7 +353,7 @@ func TestMarshalPrivateKey(t *testing.T) {
 		{
 			password: []byte("password"),
 			opts: &pkcs5.Opts{
-				Cipher:    mustCipher(pkcs5.NewCipher(pkcs5.OidAES192CBC)),
+				Cipher:    mustCipher(pkcs5.NewCipher(oids.OidAES192CBC)),
 				KDFParams: pkcs5.NewScryptParams(1<<2, 8, 1),
 				SaltSize:  16,
 			},
@@ -362,11 +363,11 @@ func TestMarshalPrivateKey(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%d: GenerateKey returned: %s", i, err)
 		}
-		der, err := x509.MarshalPKCS8EncryptedPrivateKey(rsaPrivateKey, tt.password, tt.opts)
+		der, err := pkcs8.MarshalPKCS8EncryptedPrivateKey(rsaPrivateKey, tt.password, tt.opts)
 		if err != nil {
 			t.Fatalf("%d: MarshalPrivateKey returned: %s", i, err)
 		}
-		decodedRSAPrivateKey, _, err := x509.ParsePKCS8EncryptedPrivateKey(der, tt.password)
+		decodedRSAPrivateKey, _, err := pkcs8.ParsePKCS8EncryptedPrivateKey(der, tt.password)
 		if err != nil {
 			t.Fatalf("%d: ParsePKCS8PrivateKey returned: %s", i, err)
 		}
@@ -381,11 +382,11 @@ func TestMarshalPrivateKey(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%d, %s: ConvertPrivateKeyToPKCS8 returned: %s", i, curve, err)
 			}
-			der, err = x509.MarshalPKCS8EncryptedPrivateKey(ecPrivateKey, tt.password, tt.opts)
+			der, err = pkcs8.MarshalPKCS8EncryptedPrivateKey(ecPrivateKey, tt.password, tt.opts)
 			if err != nil {
 				t.Fatalf("%d, %s: ConvertPrivateKeyToPKCS8 returned: %s", i, curve, err)
 			}
-			decodedECPrivateKey, _, err := x509.ParsePKCS8EncryptedPrivateKey(der, tt.password)
+			decodedECPrivateKey, _, err := pkcs8.ParsePKCS8EncryptedPrivateKey(der, tt.password)
 			if err != nil {
 				t.Fatalf("%d, %s: ParsePKCS8PrivateKey returned: %s", i, curve, err)
 			}
