@@ -6,15 +6,15 @@ package x509
 
 import (
 	"bytes"
-	"errors"
 	"strings"
 	"syscall"
 	"unsafe"
 
-	"github.com/pduveau/gocert/oids"
+	"github.com/pduveau/gocert/pkerr"
+	"github.com/pduveau/gocert/pkix"
 )
 
-func loadSystemRoots() (*CertPool, error) {
+func loadSystemRoots() (*CertPool, pkerr.Kerror) {
 	return &CertPool{systemPool: true}, nil
 }
 
@@ -25,24 +25,24 @@ func loadSystemRoots() (*CertPool, error) {
 // A pointer to the in-memory store is available in the returned CertContext's Store field.
 // The store is automatically freed when the CertContext is freed using
 // syscall.CertFreeCertificateContext.
-func createStoreContext(leaf *Certificate, opts *VerifyOptions) (*syscall.CertContext, error) {
+func createStoreContext(leaf *Certificate, opts *VerifyOptions) (*syscall.CertContext, pkerr.Kerror) {
 	var storeCtx *syscall.CertContext
 
 	leafCtx, err := syscall.CertCreateCertificateContext(syscall.X509_ASN_ENCODING|syscall.PKCS_7_ASN_ENCODING, &leaf.Raw[0], uint32(len(leaf.Raw)))
 	if err != nil {
-		return nil, err
+		return nil, pkerr.NewErrNative(err)
 	}
 	defer syscall.CertFreeCertificateContext(leafCtx)
 
 	handle, err := syscall.CertOpenStore(syscall.CERT_STORE_PROV_MEMORY, 0, 0, syscall.CERT_STORE_DEFER_CLOSE_UNTIL_LAST_FREE_FLAG, 0)
 	if err != nil {
-		return nil, err
+		return nil, pkerr.NewErrNative(err)
 	}
 	defer syscall.CertCloseStore(handle, 0)
 
 	err = syscall.CertAddCertificateContextToStore(handle, leafCtx, syscall.CERT_STORE_ADD_ALWAYS, &storeCtx)
 	if err != nil {
-		return nil, err
+		return nil, pkerr.NewErrNative(err)
 	}
 
 	if opts.Intermediates != nil {
@@ -51,15 +51,15 @@ func createStoreContext(leaf *Certificate, opts *VerifyOptions) (*syscall.CertCo
 			if err != nil {
 				return nil, err
 			}
-			ctx, err := syscall.CertCreateCertificateContext(syscall.X509_ASN_ENCODING|syscall.PKCS_7_ASN_ENCODING, &intermediate.Raw[0], uint32(len(intermediate.Raw)))
-			if err != nil {
-				return nil, err
+			ctx, errNative := syscall.CertCreateCertificateContext(syscall.X509_ASN_ENCODING|syscall.PKCS_7_ASN_ENCODING, &intermediate.Raw[0], uint32(len(intermediate.Raw)))
+			if errNative != nil {
+				return nil, pkerr.NewErrNative(errNative)
 			}
 
-			err = syscall.CertAddCertificateContextToStore(handle, ctx, syscall.CERT_STORE_ADD_ALWAYS, nil)
+			errNative = syscall.CertAddCertificateContextToStore(handle, ctx, syscall.CERT_STORE_ADD_ALWAYS, nil)
 			syscall.CertFreeCertificateContext(ctx)
-			if err != nil {
-				return nil, err
+			if errNative != nil {
+				return nil, pkerr.NewErrNative(errNative)
 			}
 		}
 	}
@@ -68,9 +68,9 @@ func createStoreContext(leaf *Certificate, opts *VerifyOptions) (*syscall.CertCo
 }
 
 // extractSimpleChain extracts the final certificate chain from a CertSimpleChain.
-func extractSimpleChain(simpleChain **syscall.CertSimpleChain, count int) (chain []*Certificate, err error) {
+func extractSimpleChain(simpleChain **syscall.CertSimpleChain, count int) (chain []*Certificate, err pkerr.Kerror) {
 	if simpleChain == nil || count == 0 {
-		return nil, errors.New("x509: invalid simple chain")
+		return nil, pkerr.NewErrInvalidSimpleChain()
 	}
 
 	simpleChains := unsafe.Slice(simpleChain, count)
@@ -93,17 +93,17 @@ func extractSimpleChain(simpleChain **syscall.CertSimpleChain, count int) (chain
 
 // checkChainTrustStatus checks the trust status of the certificate chain, translating
 // any errors it finds into Go errors in the process.
-func checkChainTrustStatus(c *Certificate, chainCtx *syscall.CertChainContext) error {
+func checkChainTrustStatus(chainCtx *syscall.CertChainContext) pkerr.Kerror {
 	if chainCtx.TrustStatus.ErrorStatus != syscall.CERT_TRUST_NO_ERROR {
 		status := chainCtx.TrustStatus.ErrorStatus
 		switch status {
 		case syscall.CERT_TRUST_IS_NOT_TIME_VALID:
-			return CertificateInvalidError{c, Expired, ""}
+			return pkerr.NewErrCertificateInvalid(pkerr.NunErrExpired)
 		case syscall.CERT_TRUST_IS_NOT_VALID_FOR_USAGE:
-			return CertificateInvalidError{c, IncompatibleUsage, ""}
+			return pkerr.NewErrCertificateInvalid(pkerr.NunErrIncompatibleUsage)
 		// TODO(filippo): surface more error statuses.
 		default:
-			return UnknownAuthorityError{c, nil, nil}
+			return UnknownAuthorityError(nil, nil)
 		}
 	}
 	return nil
@@ -111,10 +111,10 @@ func checkChainTrustStatus(c *Certificate, chainCtx *syscall.CertChainContext) e
 
 // checkChainSSLServerPolicy checks that the certificate chain in chainCtx is valid for
 // use as a certificate chain for a SSL/TLS server.
-func checkChainSSLServerPolicy(c *Certificate, chainCtx *syscall.CertChainContext, opts *VerifyOptions) error {
+func checkChainSSLServerPolicy(c *Certificate, chainCtx *syscall.CertChainContext, opts *VerifyOptions) pkerr.Kerror {
 	servernamep, err := syscall.UTF16PtrFromString(strings.TrimSuffix(opts.DNSName, "."))
 	if err != nil {
-		return err
+		return pkerr.NewErrNative(err)
 	}
 	sslPara := &syscall.SSLExtraCertChainPolicyPara{
 		AuthType:   syscall.AUTHTYPE_SERVER,
@@ -130,7 +130,7 @@ func checkChainSSLServerPolicy(c *Certificate, chainCtx *syscall.CertChainContex
 	status := syscall.CertChainPolicyStatus{}
 	err = syscall.CertVerifyCertificateChainPolicy(syscall.CERT_CHAIN_POLICY_SSL, chainCtx, para, &status)
 	if err != nil {
-		return err
+		return pkerr.NewErrNative(err)
 	}
 
 	// TODO(mkrautz): use the lChainIndex and lElementIndex fields
@@ -139,13 +139,13 @@ func checkChainSSLServerPolicy(c *Certificate, chainCtx *syscall.CertChainContex
 	if status.Error != 0 {
 		switch status.Error {
 		case syscall.CERT_E_EXPIRED:
-			return CertificateInvalidError{c, Expired, ""}
+			return pkerr.NewErrCertificateInvalid(pkerr.NunErrExpired)
 		case syscall.CERT_E_CN_NO_MATCH:
-			return HostnameError{c, opts.DNSName}
+			return HostnameError(opts.DNSName, c)
 		case syscall.CERT_E_UNTRUSTEDROOT:
-			return UnknownAuthorityError{c, nil, nil}
+			return UnknownAuthorityError(nil, nil)
 		default:
-			return UnknownAuthorityError{c, nil, nil}
+			return UnknownAuthorityError(nil, nil)
 		}
 	}
 
@@ -162,8 +162,8 @@ func init() {
 	}
 }
 
-func verifyChain(c *Certificate, chainCtx *syscall.CertChainContext, opts *VerifyOptions) (chain []*Certificate, err error) {
-	err = checkChainTrustStatus(c, chainCtx)
+func verifyChain(c *Certificate, chainCtx *syscall.CertChainContext, opts *VerifyOptions) (chain []*Certificate, err pkerr.Kerror) {
+	err = checkChainTrustStatus(chainCtx)
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +180,7 @@ func verifyChain(c *Certificate, chainCtx *syscall.CertChainContext, opts *Verif
 		return nil, err
 	}
 	if len(chain) == 0 {
-		return nil, errors.New("x509: internal error: system verifier returned an empty chain")
+		return nil, pkerr.NewErrEmptyChain()
 	}
 
 	// Mitigate CVE-2020-0601, where the Windows system verifier might be
@@ -189,7 +189,7 @@ func verifyChain(c *Certificate, chainCtx *syscall.CertChainContext, opts *Verif
 	// using spoofed parameters, the signature will be invalid for the correct
 	// ones we parsed. (We don't support custom curves ourselves.)
 	for i, parent := range chain[1:] {
-		if parent.PublicKeyAlgorithm != oids.ECDSA {
+		if parent.PublicKeyAlgorithm != pkix.ECDSA {
 			continue
 		}
 		if err := parent.CheckSignature(chain[i].SignatureAlgorithm,
@@ -202,7 +202,7 @@ func verifyChain(c *Certificate, chainCtx *syscall.CertChainContext, opts *Verif
 
 // systemVerify is like Verify, except that it uses CryptoAPI calls
 // to build certificate chains and verify them.
-func (c *Certificate) systemVerify(opts *VerifyOptions) (chains [][]*Certificate, err error) {
+func (c *Certificate) systemVerify(opts *VerifyOptions) (chains [][]*Certificate, err pkerr.Kerror) {
 	storeCtx, err := createStoreContext(c, opts)
 	if err != nil {
 		return nil, err
@@ -249,9 +249,9 @@ func (c *Certificate) systemVerify(opts *VerifyOptions) (chains [][]*Certificate
 
 	// CertGetCertificateChain will traverse Windows's root stores in an attempt to build a verified certificate chain
 	var topCtx *syscall.CertChainContext
-	err = syscall.CertGetCertificateChain(syscall.Handle(0), storeCtx, verifyTime, storeCtx.Store, para, CERT_CHAIN_RETURN_LOWER_QUALITY_CONTEXTS, 0, &topCtx)
-	if err != nil {
-		return nil, err
+	errNative := syscall.CertGetCertificateChain(syscall.Handle(0), storeCtx, verifyTime, storeCtx.Store, para, CERT_CHAIN_RETURN_LOWER_QUALITY_CONTEXTS, 0, &topCtx)
+	if errNative != nil {
+		return nil, pkerr.NewErrNative(errNative)
 	}
 	defer syscall.CertFreeCertificateChain(topCtx)
 

@@ -175,7 +175,7 @@ func TestRoundtripToPKCS12(t *testing.T) {
 	caroot_der, _ := pem.Decode(caroot_pem)
 	leaf_der, _ := pem.Decode(leaf_pem)
 
-	key, _, err := pkcs8.ParsePKCS8EncryptedPrivateKey(key_der.Bytes, []byte("password"))
+	key, err := pkcs8.ParsePKCS8EncryptedPrivateKey(key_der.Bytes, []byte("password"))
 	if err != nil {
 		t.Fatal("ENCRYPTED PRIVATE KEY: error parsing")
 	}
@@ -192,22 +192,22 @@ func TestRoundtripToPKCS12(t *testing.T) {
 
 	pxfdata, err := Encode(false, key, leaf, []*x509.Certificate{caroot}, "password")
 	if err != nil {
-		t.Fatalf("PKCS12: error encoding %v", err)
+		t.Fatalf("PKCS12: error encoding with PBMAC1 %v", err)
 	}
 
 	keyOut, leafOut, carootOut, err := DecodeChain(pxfdata, "password")
 	if err != nil {
-		t.Fatal("PKCS12: error decoding")
+		t.Fatal("PKCS12: error decoding with PBMAC1")
 	}
 
 	if !reflect.DeepEqual(key, keyOut) {
-		t.Errorf("Private key are different")
+		t.Errorf("Private key are different with PBMAC1")
 	}
 	if !reflect.DeepEqual(leaf, leafOut) {
-		t.Errorf("Leaf certificate are different")
+		t.Errorf("Leaf certificate are different with PBMAC1")
 	}
 	if len(carootOut) == 0 || !reflect.DeepEqual(caroot, carootOut[0]) {
-		t.Errorf("Root certificate are different")
+		t.Errorf("Root certificate are different with PBMAC1")
 	}
 
 	pxfdata, err = Encode(true, key, leaf, []*x509.Certificate{caroot}, "password")
@@ -229,6 +229,7 @@ func TestRoundtripToPKCS12(t *testing.T) {
 	if len(carootOut) == 0 || !reflect.DeepEqual(caroot, carootOut[0]) {
 		t.Errorf("Root certificate are different with PBMAC1")
 	}
+
 }
 
 func TestRoundtripToTrustStore(t *testing.T) {
@@ -246,6 +247,9 @@ func TestRoundtripToTrustStore(t *testing.T) {
 	}
 
 	pxfdata, err := EncodeTrustStore([]*x509.Certificate{caroot, leaf}, "password")
+	if err != nil {
+		t.Fatal("PKCS12: error encoding")
+	}
 
 	certOut, err := DecodeTrustStore(pxfdata, "password")
 	if err != nil {
@@ -262,5 +266,4 @@ func TestRoundtripToTrustStore(t *testing.T) {
 			t.Errorf("Certificate 1 are different ")
 		}
 	}
-
 }

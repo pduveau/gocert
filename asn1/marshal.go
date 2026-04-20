@@ -6,14 +6,14 @@ package asn1
 
 import (
 	"bytes"
-	"errors"
-	"fmt"
 	"math/big"
 	"reflect"
 	"slices"
 	"time"
 	"unicode/utf16"
 	"unicode/utf8"
+
+	"github.com/pduveau/gocert/pkerr"
 )
 
 var (
@@ -206,9 +206,9 @@ func appendBase128Int(dst []byte, n int64) []byte {
 	return dst
 }
 
-func makeBigInt(n *big.Int) (encoder, error) {
+func makeBigInt(n *big.Int) (encoder, pkerr.Kerror) {
 	if n == nil {
-		return nil, StructuralError{"empty integer"}
+		return nil, pkerr.NewErrAsn1Structural("empty integer")
 	}
 
 	if n.Sign() < 0 {
@@ -314,15 +314,15 @@ func (oid oidEncoder) Encode(dst []byte) {
 	}
 }
 
-func makeObjectIdentifier(oid []int) (e encoder, err error) {
+func makeObjectIdentifier(oid []int) (e encoder, err pkerr.Kerror) {
 	if len(oid) < 2 || oid[0] > 2 || (oid[0] < 2 && oid[1] >= 40) {
-		return nil, StructuralError{"invalid object identifier"}
+		return nil, pkerr.NewErrAsn1Structural("invalid object identifier")
 	}
 
 	return oidEncoder(oid), nil
 }
 
-func makePrintableString(s string) (e encoder, err error) {
+func makePrintableString(s string) (e encoder, err pkerr.Kerror) {
 	for i := 0; i < len(s); i++ {
 		// The asterisk is often used in PrintableString, even though
 		// it is invalid. If a PrintableString was specifically
@@ -331,42 +331,42 @@ func makePrintableString(s string) (e encoder, err error) {
 		// certificates, however when making new certificates
 		// it is rejected.
 		if !isPrintable(s[i], allowAsterisk, rejectAmpersand) {
-			return nil, StructuralError{"PrintableString contains invalid character"}
+			return nil, pkerr.NewErrAsn1Structural("PrintableString contains invalid character")
 		}
 	}
 
 	return stringEncoder(s), nil
 }
 
-func makeIA5String(s string) (e encoder, err error) {
+func makeIA5String(s string) (e encoder, err pkerr.Kerror) {
 	for i := 0; i < len(s); i++ {
 		if s[i] > 127 {
-			return nil, StructuralError{"IA5String contains invalid character"}
+			return nil, pkerr.NewErrAsn1Structural("IA5String contains invalid character")
 		}
 	}
 
 	return stringEncoder(s), nil
 }
 
-func makeNumericString(s string) (e encoder, err error) {
+func makeNumericString(s string) (e encoder, err pkerr.Kerror) {
 	for i := 0; i < len(s); i++ {
 		if !isNumeric(s[i]) {
-			return nil, StructuralError{"NumericString contains invalid character"}
+			return nil, pkerr.NewErrAsn1Structural("NumericString contains invalid character")
 		}
 	}
 
 	return stringEncoder(s), nil
 }
 
-func makeUTF8String(s string) (encoder, error) {
+func makeUTF8String(s string) (encoder, pkerr.Kerror) {
 	return stringEncoder(s), nil
 }
 
-func makeT61String(s T61String) (encoder, error) {
+func makeT61String(s T61String) (encoder, pkerr.Kerror) {
 	return stringEncoder(s), nil
 }
 
-func makeBMPString(s []rune) (encoder, error) {
+func makeBMPString(s []rune) (encoder, pkerr.Kerror) {
 	return bmpEncoder(s), nil
 }
 
@@ -387,7 +387,7 @@ func outsideUTCRange(t time.Time) bool {
 	return year < 1950 || year >= 2050
 }
 
-func makeUTCTime(t time.Time) (e encoder, err error) {
+func makeUTCTime(t time.Time) (e encoder, err pkerr.Kerror) {
 	dst := make([]byte, 0, 18)
 
 	dst, err = appendUTCTime(dst, t)
@@ -398,7 +398,7 @@ func makeUTCTime(t time.Time) (e encoder, err error) {
 	return bytesEncoder(dst), nil
 }
 
-func makeGeneralizedTime(t time.Time) (e encoder, err error) {
+func makeGeneralizedTime(t time.Time) (e encoder, err pkerr.Kerror) {
 	dst := make([]byte, 0, 20)
 
 	dst, err = appendGeneralizedTime(dst, t)
@@ -409,7 +409,7 @@ func makeGeneralizedTime(t time.Time) (e encoder, err error) {
 	return bytesEncoder(dst), nil
 }
 
-func appendUTCTime(dst []byte, t time.Time) (ret []byte, err error) {
+func appendUTCTime(dst []byte, t time.Time) (ret []byte, err pkerr.Kerror) {
 	year := t.Year()
 
 	switch {
@@ -418,16 +418,16 @@ func appendUTCTime(dst []byte, t time.Time) (ret []byte, err error) {
 	case 2000 <= year && year < 2050:
 		dst = appendTwoDigits(dst, year-2000)
 	default:
-		return nil, StructuralError{"cannot represent time as UTCTime"}
+		return nil, pkerr.NewErrAsn1Structural("cannot represent time as UTCTime")
 	}
 
 	return appendTimeCommon(dst, t), nil
 }
 
-func appendGeneralizedTime(dst []byte, t time.Time) (ret []byte, err error) {
+func appendGeneralizedTime(dst []byte, t time.Time) (ret []byte, err pkerr.Kerror) {
 	year := t.Year()
 	if year < 0 || year > 9999 {
-		return nil, StructuralError{"cannot represent time as GeneralizedTime"}
+		return nil, pkerr.NewErrAsn1Structural("cannot represent time as GeneralizedTime")
 	}
 
 	dst = appendFourDigits(dst, year)
@@ -477,7 +477,7 @@ func stripTagAndLength(in []byte) []byte {
 	return in[offset:]
 }
 
-func makeBody(value reflect.Value, params fieldParameters) (e encoder, err error) {
+func makeBody(value reflect.Value, params fieldParameters) (e encoder, err pkerr.Kerror) {
 	switch value.Type() {
 	case flagType:
 		return bytesEncoder(nil), nil
@@ -526,7 +526,7 @@ func makeBody(value reflect.Value, params fieldParameters) (e encoder, err error
 
 		for i := 0; i < t.NumField(); i++ {
 			if !t.Field(i).IsExported() {
-				return nil, StructuralError{"struct contains unexported fields"}
+				return nil, pkerr.NewErrAsn1Structural("struct contains unexported fields")
 			}
 		}
 
@@ -610,12 +610,12 @@ func makeBody(value reflect.Value, params fieldParameters) (e encoder, err error
 		}
 	}
 
-	return nil, StructuralError{"unknown Go type"}
+	return nil, pkerr.NewErrAsn1Structural("unknown Go type")
 }
 
-func makeField(v reflect.Value, params fieldParameters) (e encoder, err error) {
+func makeField(v reflect.Value, params fieldParameters) (e encoder, err pkerr.Kerror) {
 	if !v.IsValid() {
-		return nil, fmt.Errorf("asn1: cannot marshal nil value")
+		return nil, pkerr.NewErrAsn1Marshal("cannot marshal nil value")
 	}
 	// If the field is an interface{} then recurse into it.
 	if v.Kind() == reflect.Interface && v.Type().NumMethod() == 0 {
@@ -660,15 +660,15 @@ func makeField(v reflect.Value, params fieldParameters) (e encoder, err error) {
 
 	matchAny, tag, isCompound, ok := getUniversalType(v.Type())
 	if !ok || matchAny {
-		return nil, StructuralError{fmt.Sprintf("unknown Go type: %v", v.Type())}
+		return nil, pkerr.NewErrAsn1Structural("unknown Go type: %v", v.Type())
 	}
 
 	if params.timeType != 0 && tag != TagUTCTime {
-		return nil, StructuralError{"explicit time type given to non-time member"}
+		return nil, pkerr.NewErrAsn1Structural("explicit time type given to non-time member")
 	}
 
 	if params.stringType != 0 && tag != TagPrintableString {
-		return nil, StructuralError{"explicit string type given to non-string member"}
+		return nil, pkerr.NewErrAsn1Structural("explicit string type given to non-string member")
 	}
 
 	switch tag {
@@ -680,7 +680,7 @@ func makeField(v reflect.Value, params fieldParameters) (e encoder, err error) {
 			for _, r := range v.String() {
 				if r >= utf8.RuneSelf || !isPrintable(byte(r), rejectAsterisk, rejectAmpersand) {
 					if !utf8.ValidString(v.String()) {
-						return nil, errors.New("asn1: string not valid UTF-8")
+						return nil, pkerr.NewErrAsn1Marshal("UTF-8 string not valid")
 					}
 					tag = TagUTF8String
 					break
@@ -698,7 +698,7 @@ func makeField(v reflect.Value, params fieldParameters) (e encoder, err error) {
 
 	if params.set {
 		if tag != TagSequence {
-			return nil, StructuralError{"non sequence tagged as set"}
+			return nil, pkerr.NewErrAsn1Structural("non sequence tagged as set")
 		}
 		tag = TagSet
 	}
@@ -769,13 +769,13 @@ func makeField(v reflect.Value, params fieldParameters) (e encoder, err error) {
 //	numeric:     causes strings to be marshaled as ASN.1, NumericString values
 //	utc:         causes time.Time to be marshaled as ASN.1, UTCTime values
 //	generalized: causes time.Time to be marshaled as ASN.1, GeneralizedTime values
-func Marshal(val any) ([]byte, error) {
+func Marshal(val any) ([]byte, pkerr.Kerror) {
 	return MarshalWithParams(val, "")
 }
 
 // MarshalWithParams allows field parameters to be specified for the
 // top-level element. The form of the params is the same as the field tags.
-func MarshalWithParams(val any, params string) ([]byte, error) {
+func MarshalWithParams(val any, params string) ([]byte, pkerr.Kerror) {
 	e, err := makeField(reflect.ValueOf(val), parseFieldParameters(params))
 	if err != nil {
 		return nil, err

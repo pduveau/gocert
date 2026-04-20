@@ -6,25 +6,28 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
-	"fmt"
 
 	"github.com/pduveau/gocert/asn1"
-	"github.com/pduveau/gocert/oids"
+	"github.com/pduveau/gocert/pkerr"
 	"github.com/pduveau/gocert/pkix"
 	"golang.org/x/crypto/scrypt"
 )
 
-func makeSalt(size int, current *[]byte) (salt []byte, err error) {
+func makeSalt(size int, current *[]byte) (salt []byte, err pkerr.Kerror) {
+	var errNative error
 	if size > 0 {
 		salt = make([]byte, size)
-		_, err = rand.Read(salt)
+		_, errNative = rand.Read(salt)
+		if errNative != nil {
+			return nil, pkerr.NewErrNative(errNative)
+		}
 		if current != nil {
 			*current = salt
 		}
 		return
 	}
 	if current != nil && len(*current) == 0 {
-		err = fmt.Errorf("pkcs5: Salt is empty")
+		err = pkerr.NewErrEmptySalt()
 	} else {
 		salt = *current
 	}
@@ -38,14 +41,15 @@ type scryptBase struct {
 	ParallelizationParameter int
 }
 
-func (p *scryptBase) MakeSalt(saltSize int) error {
+func (p *scryptBase) MakeSalt(saltSize int) pkerr.Kerror {
 	_, err := makeSalt(saltSize, &p.Salt)
 	return err
 }
 
-func (p *scryptBase) DeriveKey(password []byte, size int) (key []byte, err error) {
-	return scrypt.Key([]byte(password), p.Salt, p.CostParameter, p.BlockSize,
+func (p *scryptBase) DeriveKey(password []byte, size int) (key []byte, err pkerr.Kerror) {
+	key, errNative := scrypt.Key([]byte(password), p.Salt, p.CostParameter, p.BlockSize,
 		p.ParallelizationParameter, size)
+	return key, pkerr.NewErrNative(errNative)
 }
 
 func (p *scryptBase) Param() any {
@@ -53,11 +57,14 @@ func (p *scryptBase) Param() any {
 }
 
 func (p *scryptBase) OID() asn1.ObjectIdentifier {
-	return oids.OidScrypt
+	return pkix.OidScrypt
 }
 
-func (p *scryptBase) HmacOID() oids.HmacOID {
+func (p *scryptBase) HmacOID() pkix.HmacOID {
 	return nil
+}
+
+func (p *scryptBase) SetHmacOID(algo pkix.HmacOID) {
 }
 
 func (p *scryptBase) SetSalt(salt []byte) {
@@ -97,29 +104,32 @@ type pbkdf2Params struct {
 	PRF            pkix.AlgorithmIdentifier `asn1:"optional"`
 }
 
-func (p *pbkdf2Params) MakeSalt(saltSize int) error {
+func (p *pbkdf2Params) MakeSalt(saltSize int) pkerr.Kerror {
 	_, err := makeSalt(saltSize, &p.Salt)
 	return err
 }
 
-func (p *pbkdf2Params) DeriveKey(password []byte, size int) (key []byte, err error) {
+func (p *pbkdf2Params) DeriveKey(password []byte, size int) (key []byte, err pkerr.Kerror) {
+	var errNative error
 	switch {
-	case len(p.PRF.Algorithm) == 0 || p.PRF.Algorithm.Equal(oids.OidHMACWithSHA1.ToAsn1()):
-		return pbkdf2.Key(sha1.New, string(password), p.Salt, p.IterationCount, size)
-	case p.PRF.Algorithm.Equal(oids.OidHMACWithSHA224.ToAsn1()):
-		return pbkdf2.Key(sha256.New224, string(password), p.Salt, p.IterationCount, size)
-	case p.PRF.Algorithm.Equal(oids.OidHMACWithSHA256.ToAsn1()):
-		return pbkdf2.Key(sha256.New, string(password), p.Salt, p.IterationCount, size)
-	case p.PRF.Algorithm.Equal(oids.OidHMACWithSHA384.ToAsn1()):
-		return pbkdf2.Key(sha512.New384, string(password), p.Salt, p.IterationCount, size)
-	case p.PRF.Algorithm.Equal(oids.OidHMACWithSHA512.ToAsn1()):
-		return pbkdf2.Key(sha512.New, string(password), p.Salt, p.IterationCount, size)
-	case p.PRF.Algorithm.Equal(oids.OidHMACWithSHA512_224.ToAsn1()):
-		return pbkdf2.Key(sha512.New512_224, string(password), p.Salt, p.IterationCount, size)
-	case p.PRF.Algorithm.Equal(oids.OidHMACWithSHA512_256.ToAsn1()):
-		return pbkdf2.Key(sha512.New512_256, string(password), p.Salt, p.IterationCount, size)
+	case len(p.PRF.Algorithm) == 0 || p.PRF.Algorithm.Equal(pkix.OidHMACWithSHA1.ToAsn1()):
+		key, errNative = pbkdf2.Key(sha1.New, string(password), p.Salt, p.IterationCount, size)
+	case p.PRF.Algorithm.Equal(pkix.OidHMACWithSHA224.ToAsn1()):
+		key, errNative = pbkdf2.Key(sha256.New224, string(password), p.Salt, p.IterationCount, size)
+	case p.PRF.Algorithm.Equal(pkix.OidHMACWithSHA256.ToAsn1()):
+		key, errNative = pbkdf2.Key(sha256.New, string(password), p.Salt, p.IterationCount, size)
+	case p.PRF.Algorithm.Equal(pkix.OidHMACWithSHA384.ToAsn1()):
+		key, errNative = pbkdf2.Key(sha512.New384, string(password), p.Salt, p.IterationCount, size)
+	case p.PRF.Algorithm.Equal(pkix.OidHMACWithSHA512.ToAsn1()):
+		key, errNative = pbkdf2.Key(sha512.New, string(password), p.Salt, p.IterationCount, size)
+	case p.PRF.Algorithm.Equal(pkix.OidHMACWithSHA512_224.ToAsn1()):
+		key, errNative = pbkdf2.Key(sha512.New512_224, string(password), p.Salt, p.IterationCount, size)
+	case p.PRF.Algorithm.Equal(pkix.OidHMACWithSHA512_256.ToAsn1()):
+		key, errNative = pbkdf2.Key(sha512.New512_256, string(password), p.Salt, p.IterationCount, size)
+	default:
+		return nil, pkerr.NewErrUnsupportedHash()
 	}
-	return nil, fmt.Errorf("pkcs8: unsupported hash function")
+	return key, pkerr.NewErrNative(errNative)
 }
 
 func (p *pbkdf2Params) Param() any {
@@ -127,11 +137,15 @@ func (p *pbkdf2Params) Param() any {
 }
 
 func (p *pbkdf2Params) OID() asn1.ObjectIdentifier {
-	return oids.OidPKCS5PBKDF2
+	return pkix.OidPKCS5PBKDF2
 }
 
-func (p *pbkdf2Params) HmacOID() oids.HmacOID {
-	return oids.HmacOID(p.PRF.Algorithm)
+func (p *pbkdf2Params) HmacOID() pkix.HmacOID {
+	return pkix.HmacOID(p.PRF.Algorithm)
+}
+
+func (p *pbkdf2Params) SetHmacOID(algo pkix.HmacOID) {
+	p.PRF.Algorithm = algo.ToAsn1()
 }
 
 func (p *pbkdf2Params) SetSalt(salt []byte) {
@@ -158,7 +172,7 @@ func (p *pbkdf2Params) GetIterations() int {
 	return p.IterationCount
 }
 
-func NewPbkdf2Params(IterationCount int, Algorithm oids.HmacOID) *pbkdf2Params {
+func NewPbkdf2Params(IterationCount int, Algorithm pkix.HmacOID) *pbkdf2Params {
 	return &pbkdf2Params{
 		IterationCount: IterationCount,
 		PRF: pkix.AlgorithmIdentifier{
@@ -171,15 +185,16 @@ func NewPbkdf2Params(IterationCount int, Algorithm oids.HmacOID) *pbkdf2Params {
 // KDFParams contains options for a key derivation function.
 // An implementation of this interface must be specified when encrypting a PKCS#8 key.
 type KDFParams interface {
-	MakeSalt(saltSize int) error
+	MakeSalt(saltSize int) pkerr.Kerror
 	// DeriveKey derives a key of size bytes from the given password and salt.
 	// It returns the key and the ASN.1-encodable parameters used.
-	DeriveKey(password []byte, size int) (key []byte, err error)
+	DeriveKey(password []byte, size int) (key []byte, err pkerr.Kerror)
 	// GetSaltSize returns the salt size specified.
 	// GetSaltSize() int
 	// OID returns the OID of the KDF specified.
 	OID() asn1.ObjectIdentifier
-	HmacOID() oids.HmacOID
+	HmacOID() pkix.HmacOID
+	SetHmacOID(pkix.HmacOID)
 	// return the KDFParams itself to allow marshal
 	Param() any
 	// SetSalt
@@ -193,18 +208,18 @@ type KDFParams interface {
 	GetIterations() int
 }
 
-func NewKDFParams(oid asn1.ObjectIdentifier, hmac ...oids.HmacOID) (KDFParams, error) {
-	usedhmac := oids.HmacOID{}
+func NewKDFParams(oid asn1.ObjectIdentifier, hmac ...pkix.HmacOID) (KDFParams, pkerr.Kerror) {
+	usedhmac := pkix.HmacOID{}
 	if len(hmac) > 0 {
 		usedhmac = hmac[0]
 	}
 	switch {
-	case oid.Equal(oids.OidPKCS5PBKDF2):
+	case oid.Equal(pkix.OidPKCS5PBKDF2):
 		return NewPbkdf2Params(0, usedhmac), nil
-	case oid.Equal(oids.OidScrypt):
+	case oid.Equal(pkix.OidScrypt):
 		return NewScryptParams(0, 0, 0), nil
 	}
-	return nil, fmt.Errorf("pkcs5: unsupported KDF (OID: %s)", oid.String())
+	return nil, pkerr.NewErrUnsupportedKDFOid(oid.String())
 }
 
-func NewDefaultKDF() KDFParams { return NewPbkdf2Params(10000, oids.OidHMACWithSHA256) }
+func NewDefaultKDF() KDFParams { return NewPbkdf2Params(10000, pkix.OidHMACWithSHA256) }

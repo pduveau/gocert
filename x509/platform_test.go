@@ -230,7 +230,7 @@ func TestPlatformVerifier(t *testing.T) {
 			if tc.selfSigned {
 				parent = tc.cert
 			}
-			certDER, err := CreateCertificate(rand.Reader, tc.cert, parent, leafKey.Public(), testRootKey)
+			certDER, err := parent.SignCertificate(tc.cert, leafKey.Public(), testRootKey)
 			if err != nil {
 				t.Fatalf("CreateCertificate failed: %s", err)
 			}

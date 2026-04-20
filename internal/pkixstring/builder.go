@@ -5,8 +5,7 @@
 package pkixstring
 
 import (
-	"errors"
-	"fmt"
+	"github.com/pduveau/gocert/pkerr"
 )
 
 // A Builder builds byte strings from fixed-length and length-prefixed values.
@@ -21,7 +20,7 @@ import (
 // the value to a given Builder. See the documentation for BuilderContinuation
 // for details.
 type Builder struct {
-	err            error
+	err            pkerr.Kerror
 	result         []byte
 	fixedSize      bool
 	child          *Builder
@@ -52,7 +51,7 @@ func NewFixedBuilder(buffer []byte) *Builder {
 
 // SetError sets the value to be returned as the error from Bytes. Writes
 // performed after calling SetError are ignored.
-func (b *Builder) SetError(err error) {
+func (b *Builder) SetError(err pkerr.Kerror) {
 	b.err = err
 }
 
@@ -138,7 +137,7 @@ type BuilderContinuation func(child *Builder)
 // the panic will be recovered and the inner error will be returned from
 // Builder.Bytes.
 type BuildError struct {
-	Err error
+	Err pkerr.Kerror
 }
 
 // AddUint8LengthPrefixed adds a 8-bit length-prefixed byte sequence.
@@ -241,7 +240,7 @@ func (b *Builder) flushChild() {
 		}
 		var lenLen, lenByte uint8
 		if int64(length) > 0xfffffffe {
-			b.err = errors.New("pending ASN.1 child too long")
+			b.err = pkerr.NewErrBuilderASN1ChildTooLong()
 			return
 		} else if length > 0xffffff {
 			lenLen = 5
@@ -280,7 +279,7 @@ func (b *Builder) flushChild() {
 		l >>= 8
 	}
 	if l != 0 {
-		b.err = fmt.Errorf("cryptobyte: pending child length %d exceeds %d-byte length prefix", length, child.pendingLenLen)
+		b.err = pkerr.NewErrBuilderASN1ChildExceed(length, child.pendingLenLen)
 		return
 	}
 
@@ -299,10 +298,10 @@ func (b *Builder) add(bytes ...byte) {
 		panic("cryptobyte: attempted write while child is pending")
 	}
 	if len(b.result)+len(bytes) < len(bytes) {
-		b.err = errors.New("cryptobyte: length overflow")
+		b.err = pkerr.NewErrBuildASN1Overflow()
 	}
 	if b.fixedSize && len(b.result)+len(bytes) > cap(b.result) {
-		b.err = errors.New("cryptobyte: Builder is exceeding its fixed-size buffer")
+		b.err = pkerr.NewErrBuildASN1ExceedsBuffer()
 		return
 	}
 	b.result = append(b.result, bytes...)
@@ -336,7 +335,7 @@ type MarshalingValue interface {
 	// Marshal is called by Builder.AddValue. It receives a pointer to a builder
 	// to marshal itself into. It may return an error that occurred during
 	// marshaling, such as unset or invalid values.
-	Marshal(b *Builder) error
+	Marshal(b *Builder) pkerr.Kerror
 }
 
 // AddValue calls Marshal on v, passing a pointer to the builder to append to.

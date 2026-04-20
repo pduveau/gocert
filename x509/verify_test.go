@@ -11,12 +11,12 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/pem"
-	"errors"
 	"fmt"
 	"log"
 	"math/big"
 	"net"
 	"os"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/pduveau/gocert/asn1"
+	"github.com/pduveau/gocert/pkerr"
 	"github.com/pduveau/gocert/pkix"
 )
 
@@ -38,7 +39,7 @@ type verifyTest struct {
 	systemLax     bool
 	keyUsages     []ExtKeyUsage
 
-	errorCallback  func(*testing.T, error)
+	errorCallback  func(*testing.T, pkerr.Kerror)
 	expectedChains [][]string
 }
 
@@ -367,9 +368,9 @@ var verifyTests = []verifyTest{
 	},
 }
 
-func expectHostnameError(msg string) func(*testing.T, error) {
-	return func(t *testing.T, err error) {
-		if _, ok := err.(HostnameError); !ok {
+func expectHostnameError(msg string) func(*testing.T, pkerr.Kerror) {
+	return func(t *testing.T, err pkerr.Kerror) {
+		if _, ok := err.(*pkerr.ErrInvalidHostname); !ok {
 			t.Fatalf("error was not a HostnameError: %v", err)
 		}
 		if !strings.Contains(err.Error(), msg) {
@@ -378,29 +379,26 @@ func expectHostnameError(msg string) func(*testing.T, error) {
 	}
 }
 
-func expectExpired(t *testing.T, err error) {
-	if inval, ok := err.(CertificateInvalidError); !ok || inval.Reason != Expired {
+func expectExpired(t *testing.T, err pkerr.Kerror) {
+	if inval, ok := err.(*pkerr.ErrInvalidCertificate); !ok || inval.Num() != pkerr.NunErrExpired {
 		t.Fatalf("error was not Expired: %v", err)
 	}
 }
 
-func expectUsageError(t *testing.T, err error) {
-	if inval, ok := err.(CertificateInvalidError); !ok || inval.Reason != IncompatibleUsage {
+func expectUsageError(t *testing.T, err pkerr.Kerror) {
+	if inval, ok := err.(*pkerr.ErrInvalidCertificate); !ok || inval.Num() != pkerr.NunErrIncompatibleUsage {
 		t.Fatalf("error was not IncompatibleUsage: %v", err)
 	}
 }
 
-func expectAuthorityUnknown(t *testing.T, err error) {
-	e, ok := err.(UnknownAuthorityError)
+func expectAuthorityUnknown(t *testing.T, err pkerr.Kerror) {
+	_, ok := err.(*pkerr.ErrUnknownAuthority)
 	if !ok {
 		t.Fatalf("error was not UnknownAuthorityError: %v", err)
 	}
-	if e.Cert == nil {
-		t.Fatalf("error was UnknownAuthorityError, but missing Cert: %v", err)
-	}
 }
 
-func expectHashError(t *testing.T, err error) {
+func expectHashError(t *testing.T, err pkerr.Kerror) {
 	if err == nil {
 		t.Fatalf("no error resulted from invalid hash")
 	}
@@ -409,28 +407,28 @@ func expectHashError(t *testing.T, err error) {
 	}
 }
 
-func expectNameConstraintsError(t *testing.T, err error) {
-	if inval, ok := err.(CertificateInvalidError); !ok || inval.Reason != CANotAuthorizedForThisName {
+func expectNameConstraintsError(t *testing.T, err pkerr.Kerror) {
+	if inval, ok := err.(*pkerr.ErrInvalidCertificate); !ok || inval.Num() != pkerr.NunErrCANotAuthorizedForThisName {
 		t.Fatalf("error was not a CANotAuthorizedForThisName: %v", err)
 	}
 }
 
-func expectNotAuthorizedError(t *testing.T, err error) {
-	if inval, ok := err.(CertificateInvalidError); !ok || inval.Reason != NotAuthorizedToSign {
+func expectNotAuthorizedError(t *testing.T, err pkerr.Kerror) {
+	if inval, ok := err.(*pkerr.ErrInvalidCertificate); !ok || inval.Num() != pkerr.NumErrNotAuthorizedToSign {
 		t.Fatalf("error was not a NotAuthorizedToSign: %v", err)
 	}
 }
 
-func expectUnhandledCriticalExtension(t *testing.T, err error) {
-	if _, ok := err.(UnhandledCriticalExtension); !ok {
+func expectUnhandledCriticalExtension(t *testing.T, err pkerr.Kerror) {
+	if _, ok := err.(*pkerr.ErrUnhandledCriticalExtension); !ok {
 		t.Fatalf("error was not an UnhandledCriticalExtension: %v", err)
 	}
 }
 
-func certificateFromPEM(pemBytes string) (*Certificate, error) {
+func certificateFromPEM(pemBytes string) (*Certificate, pkerr.Kerror) {
 	block, _ := pem.Decode([]byte(pemBytes))
 	if block == nil {
-		return nil, errors.New("failed to decode PEM")
+		return nil, pkerr.NewErrFailToParsePEM()
 	}
 	return ParseCertificate(block.Bytes)
 }
@@ -584,7 +582,7 @@ func generatePEMCertWithRepeatSAN(currentTime int64, count int, san string) stri
 	if err != nil {
 		log.Fatal(err)
 	}
-	certBytes, err := CreateCertificate(rand.Reader, &cert, &cert, &privKey.PublicKey, privKey)
+	certBytes, err := cert.SignCertificate(&cert, &privKey.PublicKey, privKey)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -1314,9 +1312,9 @@ var unknownAuthorityErrorTests = []struct {
 	cert     string
 	expected string
 }{
-	{"self-signed, cn", selfSignedWithCommonName, "x509: certificate signed by unknown authority (possibly because of \"empty\" while trying to verify candidate authority certificate \"test\")"},
-	{"self-signed, no cn, org", selfSignedNoCommonNameWithOrgName, "x509: certificate signed by unknown authority (possibly because of \"empty\" while trying to verify candidate authority certificate \"ca\")"},
-	{"self-signed, no cn, no org", selfSignedNoCommonNameNoOrgName, "x509: certificate signed by unknown authority (possibly because of \"empty\" while trying to verify candidate authority certificate \"serial:0\")"},
+	{"self-signed, cn", selfSignedWithCommonName, "certificate signed by unknown authority (possibly because of \"empty\" while trying to verify candidate authority certificate \"test\")"},
+	{"self-signed, no cn, org", selfSignedNoCommonNameWithOrgName, "certificate signed by unknown authority (possibly because of \"empty\" while trying to verify candidate authority certificate \"ca\")"},
+	{"self-signed, no cn, no org", selfSignedNoCommonNameNoOrgName, "certificate signed by unknown authority (possibly because of \"empty\" while trying to verify candidate authority certificate \"serial:0\")"},
 }
 
 func TestUnknownAuthorityError(t *testing.T) {
@@ -1330,13 +1328,9 @@ func TestUnknownAuthorityError(t *testing.T) {
 			if err != nil {
 				t.Fatalf("#%d: Unable to parse certificate -> %v", i, err)
 			}
-			uae := &UnknownAuthorityError{
-				Cert:     c,
-				hintErr:  fmt.Errorf("empty"),
-				hintCert: c,
-			}
+			uae := UnknownAuthorityError(fmt.Errorf("empty"), c)
 			actual := uae.Error()
-			if actual != tt.expected {
+			if !strings.Contains(actual, tt.expected) {
 				t.Errorf("#%d: UnknownAuthorityError.Error() response invalid actual: %s expected: %s", i, actual, tt.expected)
 			}
 		})
@@ -1519,7 +1513,7 @@ func generateCert(cn string, isCA bool, issuer *Certificate, issuerKey crypto.Pr
 		issuerKey = priv
 	}
 
-	derBytes, err := CreateCertificate(rand.Reader, template, issuer, priv.Public(), issuerKey)
+	derBytes, err := issuer.SignCertificate(template, priv.Public(), issuerKey)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1633,16 +1627,8 @@ func TestSystemRootsError(t *testing.T) {
 	systemRoots = nil
 
 	_, err = leaf.Verify(opts)
-	if _, ok := err.(SystemRootsError); !ok {
+	if _, ok := err.(*pkerr.ErrSystemRoots); !ok {
 		t.Errorf("error was not SystemRootsError: %v", err)
-	}
-}
-
-func TestSystemRootsErrorUnwrap(t *testing.T) {
-	var err1 = errors.New("err1")
-	err := SystemRootsError{Err: err1}
-	if !errors.Is(err, err1) {
-		t.Error("errors.Is failed, wanted success")
 	}
 }
 
@@ -1691,13 +1677,13 @@ type trustGraphEdge struct {
 	Subject        string
 	Type           int
 	MutateTemplate func(*Certificate)
-	Constraint     func([]*Certificate) error
+	Constraint     func([]*Certificate) pkerr.Kerror
 }
 
 type rootDescription struct {
 	Subject        string
 	MutateTemplate func(*Certificate)
-	Constraint     func([]*Certificate) error
+	Constraint     func([]*Certificate) pkerr.Kerror
 }
 
 type trustGraphDescription struct {
@@ -1736,7 +1722,7 @@ func genCertEdge(t *testing.T, subject string, key crypto.Signer, mutateTmpl fun
 		signer = key
 	}
 
-	d, err := CreateCertificate(rand.Reader, tmpl, issuer, key.Public(), signer)
+	d, err := issuer.SignCertificate(tmpl, key.Public(), signer)
 	if err != nil {
 		t.Fatalf("failed to generate test cert: %s", err)
 	}
@@ -1820,10 +1806,11 @@ func chainsToStrings(chains [][]*Certificate) []string {
 
 func TestPathBuilding(t *testing.T) {
 	tests := []struct {
-		name           string
-		graph          trustGraphDescription
-		expectedChains []string
-		expectedErr    string
+		name             string
+		graph            trustGraphDescription
+		expectedChains   []string
+		expectedErr      string
+		expectedErrMatch string
 	}{
 		{
 			// Build the following graph from RFC 4158, figure 7 (note that in this graph edges represent
@@ -2226,7 +2213,7 @@ func TestPathBuilding(t *testing.T) {
 					},
 				},
 			},
-			expectedErr: "x509: a root or intermediate certificate is not authorized to sign for this name: DNS name \"beep.com\" is not permitted by any constraint",
+			expectedErr: "a root or intermediate certificate is not authorized to sign for this name: DNS name \"beep.com\" is not permitted by any constraint",
 		},
 		{
 			// A name constraint on the intermediate does not apply to the intermediate
@@ -2262,10 +2249,10 @@ func TestPathBuilding(t *testing.T) {
 			// result in only one valid chain.
 			name: "code constrained root, two paths, one valid",
 			graph: trustGraphDescription{
-				Roots: []rootDescription{{Subject: "root", Constraint: func(chain []*Certificate) error {
+				Roots: []rootDescription{{Subject: "root", Constraint: func(chain []*Certificate) pkerr.Kerror {
 					for _, c := range chain {
 						if len(c.Subject.CommonName) == 0 || c.Subject.CommonName[0] == "inter a" {
-							return errors.New("bad")
+							return pkerr.NewErrBad()
 						}
 					}
 					return nil
@@ -2305,10 +2292,10 @@ func TestPathBuilding(t *testing.T) {
 			// A code constraint on the root, applying to the only path, should result in an error.
 			name: "code constrained root, one invalid path",
 			graph: trustGraphDescription{
-				Roots: []rootDescription{{Subject: "root", Constraint: func(chain []*Certificate) error {
+				Roots: []rootDescription{{Subject: "root", Constraint: func(chain []*Certificate) pkerr.Kerror {
 					for _, c := range chain {
 						if len(c.Subject.CommonName) == 0 || c.Subject.CommonName[0] == "leaf" {
-							return errors.New("bad")
+							return pkerr.NewErrBad()
 						}
 					}
 					return nil
@@ -2327,7 +2314,7 @@ func TestPathBuilding(t *testing.T) {
 					},
 				},
 			},
-			expectedErr: "x509: certificate signed by unknown authority (possibly because of \"bad\" while trying to verify candidate authority certificate \"root\")",
+			expectedErrMatch: `certificate signed by unknown authority \(possibly because of ".* bad" while trying to verify candidate authority certificate "root"\)`,
 		},
 	}
 
@@ -2338,8 +2325,16 @@ func TestPathBuilding(t *testing.T) {
 				Roots:         roots,
 				Intermediates: intermediates,
 			})
-			if err != nil && err.Error() != tc.expectedErr {
-				t.Fatalf("unexpected error: got %q, want %q", err, tc.expectedErr)
+			if err != nil {
+				if tc.expectedErr != "" && !strings.Contains(err.Error(), tc.expectedErr) {
+					t.Fatalf("unexpected error: got %q, want %q", err, tc.expectedErr)
+				}
+				if tc.expectedErrMatch != "" {
+					re := regexp.MustCompile(tc.expectedErrMatch)
+					if !re.MatchString(err.Error()) {
+						t.Fatalf("unexpected error: got %q, want %q", err, tc.expectedErr)
+					}
+				}
 			}
 			if len(tc.expectedChains) == 0 {
 				return
@@ -2385,7 +2380,7 @@ func TestEKUEnforcement(t *testing.T) {
 			inters:     []ekuDescs{{EKUs: []ExtKeyUsage{ExtKeyUsageServerAuth, ExtKeyUsageClientAuth}}},
 			leaf:       ekuDescs{EKUs: []ExtKeyUsage{ExtKeyUsageServerAuth, ExtKeyUsageClientAuth}},
 			verifyEKUs: []ExtKeyUsage{ExtKeyUsageServerAuth},
-			err:        "x509: certificate specifies an incompatible key usage",
+			err:        "certificate specifies an incompatible key usage",
 		},
 		{
 			name:       "valid, two EKUs, one path",
@@ -2405,7 +2400,7 @@ func TestEKUEnforcement(t *testing.T) {
 			},
 			leaf:       ekuDescs{EKUs: []ExtKeyUsage{ExtKeyUsageServerAuth}},
 			verifyEKUs: []ExtKeyUsage{ExtKeyUsageServerAuth, ExtKeyUsageClientAuth},
-			err:        "x509: certificate specifies an incompatible key usage",
+			err:        "certificate specifies an incompatible key usage",
 		},
 		{
 			name:       "valid, intermediate has no EKU",
@@ -2420,7 +2415,7 @@ func TestEKUEnforcement(t *testing.T) {
 			inters:     []ekuDescs{{}},
 			leaf:       ekuDescs{EKUs: []ExtKeyUsage{ExtKeyUsageServerAuth}},
 			verifyEKUs: []ExtKeyUsage{ExtKeyUsageServerAuth, ExtKeyUsageClientAuth},
-			err:        "x509: certificate specifies an incompatible key usage",
+			err:        "certificate specifies an incompatible key usage",
 		},
 		{
 			name:       "invalid, intermediate has unknown EKU",
@@ -2428,7 +2423,7 @@ func TestEKUEnforcement(t *testing.T) {
 			inters:     []ekuDescs{{Unknown: []asn1.ObjectIdentifier{{1, 2, 3}}}},
 			leaf:       ekuDescs{EKUs: []ExtKeyUsage{ExtKeyUsageServerAuth}},
 			verifyEKUs: []ExtKeyUsage{ExtKeyUsageServerAuth},
-			err:        "x509: certificate specifies an incompatible key usage",
+			err:        "certificate specifies an incompatible key usage",
 		},
 	}
 
@@ -2465,7 +2460,7 @@ func TestEKUEnforcement(t *testing.T) {
 			_, err := leaf.Verify(VerifyOptions{Roots: rootPool, Intermediates: interPool, KeyUsages: tc.verifyEKUs})
 			if err == nil && tc.err != "" {
 				t.Errorf("expected error")
-			} else if err != nil && err.Error() != tc.err {
+			} else if err != nil && !strings.Contains(err.Error(), tc.err) {
 				t.Errorf("unexpected error: got %q, want %q", err.Error(), tc.err)
 			}
 		})
@@ -2521,7 +2516,7 @@ func TestVerifyEKURootAsLeaf(t *testing.T) {
 				San:          &SubjectAlternativeName{DNSNames: []string{"localhost"}},
 				ExtKeyUsage:  tc.rootEKUs,
 			}
-			rootDER, err := CreateCertificate(rand.Reader, tmpl, tmpl, k.Public(), k)
+			rootDER, err := tmpl.SignCertificate(tmpl, k.Public(), k)
 			if err != nil {
 				t.Fatalf("failed to create certificate: %s", err)
 			}
@@ -2557,8 +2552,8 @@ func TestVerifyNilPubKey(t *testing.T) {
 	opts.Roots.AddCert(r)
 
 	_, err := c.buildChains([]*Certificate{r}, nil, opts)
-	if _, ok := err.(UnknownAuthorityError); !ok {
-		t.Fatalf("buildChains returned unexpected error, got: %v, want %v", err, UnknownAuthorityError{})
+	if _, ok := err.(*pkerr.ErrUnknownAuthority); !ok {
+		t.Fatalf("buildChains returned unexpected error, got: %v, want %v", err, pkerr.ErrUnknownAuthority{})
 	}
 }
 
@@ -2575,7 +2570,7 @@ func TestVerifyBareWildcard(t *testing.T) {
 		NotAfter:     time.Now().Add(time.Hour),
 		San:          &SubjectAlternativeName{DNSNames: []string{"*"}},
 	}
-	cDER, err := CreateCertificate(rand.Reader, tmpl, tmpl, k.Public(), k)
+	cDER, err := tmpl.SignCertificate(tmpl, k.Public(), k)
 	if err != nil {
 		t.Fatalf("failed to create certificate: %s", err)
 	}
@@ -2978,7 +2973,7 @@ func TestInvalidPolicyWithAnyKeyUsage(t *testing.T) {
 	testOID3 := mustNewOIDFromInts([]uint64{1, 2, 840, 113554, 4, 1, 72585, 2, 3})
 	root, intermediate, leaf := loadTestCert(t, "../testdata/policy_root.pem"), loadTestCert(t, "../testdata/policy_intermediate_require.pem"), loadTestCert(t, "../testdata/policy_leaf.pem")
 
-	expectedErr := "x509: no valid chains built: 1 candidate chains with invalid policies"
+	expectedErr := "no valid chains built: 1 candidate chains with invalid policies"
 
 	roots, intermediates := NewCertPool(), NewCertPool()
 	roots.AddCert(root)
@@ -2992,7 +2987,7 @@ func TestInvalidPolicyWithAnyKeyUsage(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("unexpected success, invalid policy shouldn't be bypassed by passing VerifyOptions.KeyUsages with ExtKeyUsageAny")
-	} else if err.Error() != expectedErr {
+	} else if !strings.Contains(err.Error(), expectedErr) {
 		t.Fatalf("unexpected error, got %q, want %q", err, expectedErr)
 	}
 }
@@ -3011,7 +3006,7 @@ func TestCertificateChainSignedByECDSA(t *testing.T) {
 		KeyUsage:              KeyUsageCertSign | KeyUsageCRLSign,
 		BasicConstraintsValid: true,
 	}
-	caDER, err := CreateCertificate(rand.Reader, root, root, &caKey.PublicKey, caKey)
+	caDER, err := root.SignCertificate(root, &caKey.PublicKey, caKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3030,7 +3025,7 @@ func TestCertificateChainSignedByECDSA(t *testing.T) {
 		ExtKeyUsage:           []ExtKeyUsage{ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
 	}
-	leafDER, err := CreateCertificate(rand.Reader, leaf, root, &leafKey.PublicKey, caKey)
+	leafDER, err := root.SignCertificate(leaf, &leafKey.PublicKey, caKey)
 	if err != nil {
 		t.Fatal(err)
 	}

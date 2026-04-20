@@ -4,40 +4,24 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/pem"
-	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"testing"
 
 	"github.com/pduveau/gocert/asn1"
-	"github.com/pduveau/gocert/oids"
 	"github.com/pduveau/gocert/pkix"
 	"github.com/pduveau/gocert/x509"
 )
 
-// getDigestOIDForSignatureAlgorithm takes an oids.SignatureAlgorithm
-// and returns the corresponding OID digest algorithm
-func getDigestOIDForSignatureAlgorithm(digestAlg oids.SignatureAlgorithm) (asn1.ObjectIdentifier, error) {
-	switch digestAlg {
-	case oids.RSAWithSHA256, oids.ECDSAWithSHA256:
-		return OIDDigestAlgorithmSHA256, nil
-	case oids.RSAWithSHA384, oids.ECDSAWithSHA384:
-		return OIDDigestAlgorithmSHA384, nil
-	case oids.RSAWithSHA512, oids.ECDSAWithSHA512:
-		return OIDDigestAlgorithmSHA512, nil
-	}
-	return nil, fmt.Errorf("pkcs7: cannot convert hash to oid, unknown hash algorithm")
-}
-
 func TestSign(t *testing.T) {
 	content := []byte("Hello World")
-	sigalgs := []oids.SignatureAlgorithm{
-		oids.RSAWithSHA256,
-		oids.RSAWithSHA512,
-		oids.ECDSAWithSHA256,
-		oids.ECDSAWithSHA384,
-		oids.ECDSAWithSHA512,
+	sigalgs := []pkix.SignatureAlgorithm{
+		pkix.RSAWithSHA256,
+		pkix.RSAWithSHA512,
+		pkix.ECDSAWithSHA256,
+		pkix.ECDSAWithSHA384,
+		pkix.ECDSAWithSHA512,
 	}
 	for _, sigalgroot := range sigalgs {
 		rootCert, err := createTestCertificateByIssuer("PKCS7 Test Root CA", nil, sigalgroot, true)
@@ -66,7 +50,7 @@ func TestSign(t *testing.T) {
 					}
 
 					// Set the digest to match the end entity cert
-					signerDigest, _ := getDigestOIDForSignatureAlgorithm(signerCert.Certificate.SignatureAlgorithm)
+					signerDigest, _ := signerCert.Certificate.SignatureAlgorithm.DigestOID()
 					toBeSigned.SetDigestAlgorithm(signerDigest)
 
 					if err := toBeSigned.AddSignerChain(signerCert.Certificate, *signerCert.PrivateKey, parents, SignerInfoConfig{}); err != nil {
@@ -105,7 +89,7 @@ func TestSign(t *testing.T) {
 
 func TestExampleSignedData(t *testing.T) {
 	// generate a signing cert or load a key pair
-	cert, err := createTestCertificate(oids.RSAWithSHA256)
+	cert, err := createTestCertificate(pkix.RSAWithSHA256)
 	if err != nil {
 		t.Fatalf("Cannot create test certificates: %s", err)
 	}
@@ -135,7 +119,7 @@ func TestExampleSignedData(t *testing.T) {
 
 func TestSignedDataWithContentType(t *testing.T) {
 	// generate a signing cert or load a key pair
-	cert, err := createTestCertificate(oids.RSAWithSHA256)
+	cert, err := createTestCertificate(pkix.RSAWithSHA256)
 	if err != nil {
 		t.Fatalf("Cannot create test certificates: %s", err)
 	}
@@ -154,13 +138,13 @@ func TestSignedDataWithContentType(t *testing.T) {
 	// Finish() to obtain the signature bytes
 	detachedSignature, err := signedData.Finish()
 	if err != nil {
-		fmt.Printf("Cannot finish signing data: %s", err)
+		t.Errorf("Cannot finish signing data: %s", err)
 	}
 	pem.Encode(os.Stdout, &pem.Block{Type: "PKCS7", Bytes: detachedSignature})
 }
 
 func TestUnmarshalSignedAttribute(t *testing.T) {
-	cert, err := createTestCertificate(oids.RSAWithSHA512)
+	cert, err := createTestCertificate(pkix.RSAWithSHA512)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +179,7 @@ func TestUnmarshalSignedAttribute(t *testing.T) {
 }
 
 func TestDegenerateCertificate(t *testing.T) {
-	cert, err := createTestCertificate(oids.RSAWithSHA256)
+	cert, err := createTestCertificate(pkix.RSAWithSHA256)
 	if err != nil {
 		t.Fatal(err)
 	}

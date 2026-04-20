@@ -8,6 +8,8 @@ package x509
 
 import (
 	"os"
+
+	"github.com/pduveau/gocert/pkerr"
 )
 
 // Possible certificate files; stop after finding one.
@@ -15,13 +17,13 @@ var certFiles = []string{
 	"/sys/lib/tls/ca.pem",
 }
 
-func (c *Certificate) systemVerify(opts *VerifyOptions) (chains [][]*Certificate, err error) {
+func (c *Certificate) systemVerify(opts *VerifyOptions) (chains [][]*Certificate, err pkerr.Pkerror) {
 	return nil, nil
 }
 
-func loadSystemRoots() (*CertPool, error) {
+func loadSystemRoots() (*CertPool, pkerr.Pkerror) {
 	roots := NewCertPool()
-	var bestErr error
+	var bestErr pkerr.Pkerror
 	for _, file := range certFiles {
 		data, err := os.ReadFile(file)
 		if err == nil {
@@ -29,7 +31,7 @@ func loadSystemRoots() (*CertPool, error) {
 			return roots, nil
 		}
 		if bestErr == nil || (os.IsNotExist(bestErr) && !os.IsNotExist(err)) {
-			bestErr = err
+			bestErr = pkerr.NewBaseErrorFromNativeError(err)
 		}
 	}
 	if bestErr == nil {

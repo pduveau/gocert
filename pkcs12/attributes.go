@@ -1,9 +1,6 @@
 package pkcs12
 
 import (
-	"encoding/hex"
-	"fmt"
-
 	"github.com/pduveau/gocert/asn1"
 )
 
@@ -13,7 +10,7 @@ var (
 	oidMicrosoftCSPName = asn1.ObjectIdentifier([]int{1, 3, 6, 1, 4, 1, 311, 17, 1})
 )
 
-func convertAttribute(attribute *pkcs12Attribute) (key, value string, err error) {
+/* func convertAttribute(attribute *pkcs12Attribute) (key, value string, err error) {
 	isString := false
 
 	switch {
@@ -46,4 +43,4 @@ func convertAttribute(attribute *pkcs12Attribute) (key, value string, err error)
 	}
 
 	return key, value, nil
-}
+}*/

@@ -2,10 +2,13 @@ package pkcs5
 
 import (
 	"crypto/rand"
-	"fmt"
+	"crypto/sha1"
+	"crypto/sha256"
+	"crypto/sha512"
+	"hash"
 
 	"github.com/pduveau/gocert/asn1"
-	"github.com/pduveau/gocert/oids"
+	"github.com/pduveau/gocert/pkerr"
 	"github.com/pduveau/gocert/pkix"
 )
 
@@ -15,7 +18,7 @@ func NewDefaultOpts() *Opts {
 	return &Opts{
 		Cipher:    NewDefaultCipher(),
 		KDFParams: NewDefaultKDF(),
-		Oid:       oids.OidPBES2,
+		Oid:       pkix.OidPBES2,
 	}
 }
 
@@ -23,7 +26,7 @@ func NewDefaultPBMAC1Opts() *Opts {
 	return &Opts{
 		Cipher:    NewDefaultPBMAC1Cipher(),
 		KDFParams: NewDefaultKDF(),
-		Oid:       oids.OidPBMAC1,
+		Oid:       pkix.OidPBMAC1,
 	}
 }
 
@@ -35,105 +38,134 @@ type Opts struct {
 	Oid       asn1.ObjectIdentifier
 }
 
-type pbes2Params struct {
+type Pbes2Params struct {
 	KeyDerivationFunc pkix.AlgorithmIdentifier
 	EncryptionScheme  pkix.AlgorithmIdentifier
 }
 
-func ParseKeyDerivationFunc(keyDerivationFunc pkix.AlgorithmIdentifier) (params KDFParams, err error) {
+func (pbes *Pbes2Params) DeriveKey(password []byte, keyLength ...int) (key []byte, err pkerr.Kerror) {
+	var params KDFParams
+	params, err = parseKeyDerivationFunc(pbes.KeyDerivationFunc)
+	if err != nil {
+		return
+	}
+	if len(keyLength) > 0 {
+		return params.DeriveKey(password, keyLength[0])
+	}
+	return params.DeriveKey(password, params.GetKeyLength())
+}
+
+func (pbes *Pbes2Params) PKCS12MacAlgorithmAndKey(password []byte) (func() hash.Hash, []byte, pkerr.Kerror) {
+	key, err := pbes.DeriveKey(password)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	switch {
+	case pbes.EncryptionScheme.Algorithm.Equal(pkix.OidHMACWithSHA1.ToAsn1()):
+		return sha1.New, key, nil
+	case pbes.EncryptionScheme.Algorithm.Equal(pkix.OidHMACWithSHA256.ToAsn1()):
+		return sha256.New, key, nil
+	case pbes.EncryptionScheme.Algorithm.Equal(pkix.OidHMACWithSHA384.ToAsn1()):
+		return sha512.New384, key, nil
+	case pbes.EncryptionScheme.Algorithm.Equal(pkix.OidHMACWithSHA512.ToAsn1()):
+		return sha512.New, key, nil
+	default:
+		return nil, nil, pkerr.NewErrUnsupportedPBMAC1Algorithm(pbes.EncryptionScheme.Algorithm.String())
+	}
+
+}
+
+func parseKeyDerivationFunc(keyDerivationFunc pkix.AlgorithmIdentifier) (params KDFParams, err pkerr.Kerror) {
 	params, err = NewKDFParams(keyDerivationFunc.Algorithm)
 	if err == nil {
 		_, err = asn1.Unmarshal(keyDerivationFunc.Parameters.FullBytes, params)
 		if err != nil {
-			return nil, fmt.Errorf("pkcs8: invalid KDF parameters (%v)", err)
+			return nil, pkerr.NewErrInvalidKDFParams(err)
 		}
 	}
 	return
 }
 
-func ParseEncryptionScheme(encryptionScheme pkix.AlgorithmIdentifier) (cipher Cipher, iv []byte, err error) {
-	cipher, err = NewCipher(oids.CipherOID(encryptionScheme.Algorithm))
+func parseEncryptionScheme(encryptionScheme pkix.AlgorithmIdentifier) (cipher Cipher, iv []byte, err pkerr.Kerror) {
+	cipher, err = NewCipher(pkix.CipherOID(encryptionScheme.Algorithm))
 	if err == nil {
 		if _, err := asn1.Unmarshal(encryptionScheme.Parameters.FullBytes, &iv); err != nil {
-			return nil, nil, fmt.Errorf("pkcs8: invalid cipher parameters")
+			return nil, nil, pkerr.NewErrEncryptionParams()
 		}
 	}
 	return
 }
 
-func ParsePBES2Params(data []byte) (params *pbes2Params, err error) {
+func ParsePBES2Params(data []byte) (params *Pbes2Params, err pkerr.Kerror) {
 	var rest []byte
-	params = &pbes2Params{}
+	params = &Pbes2Params{}
 	rest, err = asn1.Unmarshal(data, params)
 	if err == nil && len(rest) > 0 {
-		err = fmt.Errorf("pkcs8: invalid PBES2 parameters")
+		err = pkerr.NewErrInvalidPBES2Params()
 	}
 	return
 }
 
 // ParsePrivateKey parses a DER-encoded PKCS#8 private key.
-func ParseEncryptedPKCS5(encryptionAlgorithm pkix.AlgorithmIdentifier, encryptedData []byte, password []byte) ([]byte, KDFParams, error) {
+func ParseEncryptedPKCS5(encryptionAlgorithm pkix.AlgorithmIdentifier, encryptedData []byte, password []byte) ([]byte, pkerr.Kerror) {
 	// No password provided, assume the private key is unencrypted
 	if len(password) == 0 {
-		return nil, nil, fmt.Errorf("pkcs8: password is required")
+		return nil, pkerr.NewErrPasswordMissing()
 	}
 
-	if !encryptionAlgorithm.Algorithm.Equal(oids.OidPBES2) {
-		return nil, nil, fmt.Errorf("pkcs8: only PBES2 supported")
+	if !encryptionAlgorithm.Algorithm.Equal(pkix.OidPBES2) {
+		return nil, pkerr.NewErrPBES2Only()
 	}
 
 	params, err := ParsePBES2Params(encryptionAlgorithm.Parameters.FullBytes)
 	if err != nil {
-		return nil, nil, fmt.Errorf("pkcs8: invalid PBES2 parameters")
+		return nil, err
 	}
 
-	cipher, iv, err := ParseEncryptionScheme(params.EncryptionScheme)
+	cipher, iv, err := parseEncryptionScheme(params.EncryptionScheme)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	kdfParams, err := ParseKeyDerivationFunc(params.KeyDerivationFunc)
+	symkey, err := params.DeriveKey(password, cipher.KeySize())
 	if err != nil {
-		return nil, nil, err
-	}
-
-	symkey, err := kdfParams.DeriveKey(password, cipher.KeySize())
-	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	decryptedData, err := cipher.Decrypt(symkey, iv, encryptedData)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	return decryptedData, kdfParams, nil
+	return decryptedData, nil
 }
 
-func MakePBES2(options ...*Opts) (*pkix.AlgorithmIdentifier, []byte, error) {
+func MakePBES2(options ...*Opts) (ai *pkix.AlgorithmIdentifier, iv []byte, pbes *Pbes2Params, err pkerr.Kerror) {
 	opts := NewDefaultOpts()
 	if len(options) > 0 || options[0] != nil {
 		opts = options[0]
 	}
 
-	iv := make([]byte, opts.Cipher.IVSize())
-	_, err := rand.Read(iv)
-	if err != nil {
-		return nil, nil, err
+	iv = make([]byte, opts.Cipher.IVSize())
+	_, errNative := rand.Read(iv)
+	if errNative != nil {
+		err = pkerr.NewErrNative(errNative)
+		return
 	}
 	err = opts.KDFParams.MakeSalt(opts.SaltSize)
 	if err != nil {
-		return nil, nil, err
+		return
 	}
 	marshalledParams, err := asn1.Marshal(opts.KDFParams.Param())
 	if err != nil {
-		return nil, nil, err
+		return
 	}
 	marshalledIV, err := asn1.Marshal(iv)
 	if err != nil {
-		return nil, nil, err
+		return
 	}
-	encryptionAlgorithmParams := pbes2Params{
+	pbes = &Pbes2Params{
 		EncryptionScheme: pkix.AlgorithmIdentifier{
 			Algorithm:  opts.Cipher.OID(),
 			Parameters: asn1.RawValue{FullBytes: marshalledIV},
@@ -143,28 +175,29 @@ func MakePBES2(options ...*Opts) (*pkix.AlgorithmIdentifier, []byte, error) {
 			Parameters: asn1.RawValue{FullBytes: marshalledParams},
 		},
 	}
-	marshalledEncryptionAlgorithmParams, err := asn1.Marshal(encryptionAlgorithmParams)
+	marshalledEncryptionAlgorithmParams, err := asn1.Marshal(*pbes)
 	if err != nil {
-		return nil, nil, err
+		return
 	}
 
-	oid := oids.OidPBES2
+	oid := pkix.OidPBES2
 	if opts.Oid != nil {
 		oid = opts.Oid
 	}
 
-	return &pkix.AlgorithmIdentifier{
+	ai = &pkix.AlgorithmIdentifier{
 		Algorithm:  oid,
 		Parameters: asn1.RawValue{FullBytes: marshalledEncryptionAlgorithmParams},
-	}, iv, nil
+	}
 
+	return
 }
 
 // MarshalPrivateKey encodes a private key into DER-encoded PKCS#8 with the given options.
-func MarshalEncryptedPKCS5(data []byte, password []byte, options ...*Opts) (encryptionAlgorithm *pkix.AlgorithmIdentifier, encryptedData []byte, err error) {
+func MarshalEncryptedPKCS5(data []byte, password []byte, options ...*Opts) (encryptionAlgorithm *pkix.AlgorithmIdentifier, encryptedData []byte, err pkerr.Kerror) {
 	var iv, key []byte
 	if len(password) == 0 {
-		err = fmt.Errorf("pkcs8: password is required")
+		err = pkerr.NewErrPasswordMissing()
 		return
 	}
 
@@ -173,7 +206,7 @@ func MarshalEncryptedPKCS5(data []byte, password []byte, options ...*Opts) (encr
 		opts = options[0]
 	}
 
-	encryptionAlgorithm, iv, err = MakePBES2(options...)
+	encryptionAlgorithm, iv, _, err = MakePBES2(options...)
 
 	key, err = opts.KDFParams.DeriveKey(password, opts.Cipher.KeySize())
 	if err != nil {

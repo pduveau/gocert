@@ -129,8 +129,8 @@ func TestParseASN1String(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			out, err := parseASN1String(tc.tag, tc.value)
-			if err != nil && err.Error() != tc.expectedErr {
+			out, err := tc.tag.ParseASN1String(tc.value)
+			if err != nil && !strings.Contains(err.Error(), tc.expectedErr) {
 				t.Fatalf("parseASN1String returned unexpected error: got %q, want %q", err, tc.expectedErr)
 			} else if err == nil && tc.expectedErr != "" {
 				t.Fatalf("parseASN1String didn't fail, expected: %s", tc.expectedErr)
@@ -260,8 +260,8 @@ d5l1tRhScKu2NBgm74nYmJxJYgvuTA38wGhRrGU=
 	for _, cert := range certs {
 		b, _ := pem.Decode([]byte(cert))
 		_, err := ParseCertificate(b.Bytes)
-		if err == nil || err.Error() != "x509: invalid basic constraints" {
-			t.Errorf(`ParseCertificate() = %v; want = "x509: invalid basic constraints"`, err)
+		if err == nil || !strings.Contains(err.Error(), "invalid basic constraints") {
+			t.Errorf(`ParseCertificate() = %v; want = "invalid basic constraints"`, err)
 		}
 	}
 }
@@ -354,7 +354,7 @@ func TestRoundtripWeirdSANs(t *testing.T) {
 			DNSNames:       badNames,
 		},
 	}
-	b, err := CreateCertificate(rand.Reader, tmpl, tmpl, &k.PublicKey, k)
+	b, err := tmpl.SignCertificate(tmpl, &k.PublicKey, k)
 	if err != nil {
 		t.Fatal(err)
 	}

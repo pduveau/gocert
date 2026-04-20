@@ -8,6 +8,9 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"unicode"
+
+	"github.com/pduveau/gocert/pkerr"
 )
 
 // ASN.1 objects have metadata preceding them:
@@ -205,4 +208,38 @@ func getUniversalType(t reflect.Type) (matchAny bool, tagNumber int, isCompound,
 		return false, TagPrintableString, false, true
 	}
 	return false, 0, false, false
+}
+
+// isPrintable reports whether the given b is in the ASN.1 PrintableString set.
+// This is a simplified version of encoding/asn1.isPrintable.
+func IsPrintable(b byte) bool {
+	return 'a' <= b && b <= 'z' ||
+		'A' <= b && b <= 'Z' ||
+		'0' <= b && b <= '9' ||
+		'\'' <= b && b <= ')' ||
+		'+' <= b && b <= '/' ||
+		b == ' ' ||
+		b == ':' ||
+		b == '=' ||
+		b == '?' ||
+		// This is technically not allowed in a PrintableString.
+		// However, x509 certificates with wildcard strings don't
+		// always use the correct string type so we permit it.
+		b == '*' ||
+		// This is not technically allowed either. However, not
+		// only is it relatively common, but there are also a
+		// handful of CA certificates that contain it. At least
+		// one of which will not expire until 2027.
+		b == '&'
+}
+
+func IsIA5String(s string) pkerr.Kerror {
+	for _, r := range s {
+		// Per RFC5280 "IA5String is limited to the set of ASCII characters"
+		if r > unicode.MaxASCII {
+			return pkerr.NewErrAsn1Syntax("%q cannot be encoded as an IA5String", s)
+		}
+	}
+
+	return nil
 }

@@ -1,15 +1,14 @@
 package pkcs7
 
 import (
-	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/rsa"
-	"errors"
-	"fmt"
 
 	"github.com/pduveau/gocert/asn1"
+	"github.com/pduveau/gocert/internal/intcrypto"
+	"github.com/pduveau/gocert/pkerr"
 	"github.com/pduveau/gocert/pkix"
 	"github.com/pduveau/gocert/x509"
 )
@@ -41,33 +40,39 @@ type encryptedContentInfo struct {
 type EncryptionAlgorithm int
 
 const (
-	// EncryptionAlgorithmAES128CBC is the AES 128 bits with CBC encryption algorithm
+	// EncryptionAlgorithmAES128CBC is the AES 128 bits with CBC intcrypto algorithm
 	// Avoid this algorithm unless required for interoperability; use AES GCM instead.
 	EncryptionAlgorithmAES128CBC EncryptionAlgorithm = iota + 1
 
-	// EncryptionAlgorithmAES256CBC is the AES 256 bits with CBC encryption algorithm
+	// EncryptionAlgorithmAES256CBC is the AES 256 bits with CBC intcrypto algorithm
 	// Avoid this algorithm unless required for interoperability; use AES GCM instead.
 	EncryptionAlgorithmAES256CBC
 
-	// EncryptionAlgorithmAES128GCM is the AES 128 bits with GCM encryption algorithm
+	// EncryptionAlgorithmAES128GCM is the AES 128 bits with GCM intcrypto algorithm
 	EncryptionAlgorithmAES128GCM
 
-	// EncryptionAlgorithmAES256GCM is the AES 256 bits with GCM encryption algorithm
+	// EncryptionAlgorithmAES256GCM is the AES 256 bits with GCM intcrypto algorithm
 	EncryptionAlgorithmAES256GCM
 )
+
+func (t EncryptionAlgorithm) String() string {
+	switch t {
+	case EncryptionAlgorithmAES128CBC:
+		return "AES128CBC"
+	case EncryptionAlgorithmAES256CBC:
+		return "AES256CBC"
+	case EncryptionAlgorithmAES128GCM:
+		return "AES128GCM"
+	case EncryptionAlgorithmAES256GCM:
+		return "AES256GCM"
+	}
+	return "Unknown"
+}
 
 // ContentEncryptionAlgorithm determines the algorithm used to encrypt the
 // plaintext message. Change the value of this variable to change which
 // algorithm is used in the Encrypt() function.
 // var ContentEncryptionAlgorithm = EncryptionAlgorithmAES256CBC
-
-// ErrUnsupportedEncryptionAlgorithm is returned when attempting to encrypt
-// content with an unsupported algorithm.
-var ErrUnsupportedEncryptionAlgorithm = errors.New("pkcs7: cannot encrypt content: only DES-CBC, AES-CBC, and AES-GCM supported")
-
-// ErrPSKNotProvided is returned when attempting to encrypt
-// using a PSK without actually providing the PSK.
-var ErrPSKNotProvided = errors.New("pkcs7: cannot encrypt content: PSK not provided")
 
 const nonceSize = 12
 
@@ -76,18 +81,18 @@ type aesGCMParameters struct {
 	ICVLen int
 }
 
-func encryptAESGCM(ContentEncryptionAlgorithm EncryptionAlgorithm, content []byte, key []byte) ([]byte, *encryptedContentInfo, error) {
+func encryptAESGCM(ContentEncryptionAlgorithm EncryptionAlgorithm, content []byte, key []byte) ([]byte, *encryptedContentInfo, pkerr.Kerror) {
 	var keyLen int
 	var algID asn1.ObjectIdentifier
 	switch ContentEncryptionAlgorithm {
 	case EncryptionAlgorithmAES128GCM:
 		keyLen = 16
-		algID = OIDEncryptionAlgorithmAES128GCM
+		algID = pkix.OIDEncryptionAlgorithmAES128GCM
 	case EncryptionAlgorithmAES256GCM:
 		keyLen = 32
-		algID = OIDEncryptionAlgorithmAES256GCM
+		algID = pkix.OIDEncryptionAlgorithmAES256GCM
 	default:
-		return nil, nil, fmt.Errorf("invalid ContentEncryptionAlgorithm in encryptAESGCM: %d", ContentEncryptionAlgorithm)
+		return nil, nil, pkerr.NewErrInvalidContentEncryptionAlgorithm("encryptAESGCM", ContentEncryptionAlgorithm.String())
 	}
 	if key == nil {
 		// Create AES key
@@ -95,27 +100,27 @@ func encryptAESGCM(ContentEncryptionAlgorithm EncryptionAlgorithm, content []byt
 
 		_, err := rand.Read(key)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, pkerr.NewErrNative(err)
 		}
 	}
 
 	// Create nonce
 	nonce := make([]byte, nonceSize)
 
-	_, err := rand.Read(nonce)
-	if err != nil {
-		return nil, nil, err
+	_, errNative := rand.Read(nonce)
+	if errNative != nil {
+		return nil, nil, pkerr.NewErrNative(errNative)
 	}
 
 	// Encrypt content
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, nil, err
+	block, errNative := aes.NewCipher(key)
+	if errNative != nil {
+		return nil, nil, pkerr.NewErrNative(errNative)
 	}
 
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, nil, err
+	gcm, errNative := cipher.NewGCM(block)
+	if errNative != nil {
+		return nil, nil, pkerr.NewErrNative(errNative)
 	}
 
 	ciphertext := gcm.Seal(nil, nonce, content, nil)
@@ -127,7 +132,7 @@ func encryptAESGCM(ContentEncryptionAlgorithm EncryptionAlgorithm, content []byt
 	}
 
 	paramBytes, err := asn1.Marshal(paramSeq)
-	if err != nil {
+	if errNative != nil {
 		return nil, nil, err
 	}
 
@@ -146,45 +151,45 @@ func encryptAESGCM(ContentEncryptionAlgorithm EncryptionAlgorithm, content []byt
 	return key, &eci, nil
 }
 
-func encryptAESCBC(ContentEncryptionAlgorithm EncryptionAlgorithm, content []byte, key []byte) ([]byte, *encryptedContentInfo, error) {
+func encryptAESCBC(ContentEncryptionAlgorithm EncryptionAlgorithm, content []byte, key []byte) ([]byte, *encryptedContentInfo, pkerr.Kerror) {
 	var keyLen int
 	var algID asn1.ObjectIdentifier
 	switch ContentEncryptionAlgorithm {
 	case EncryptionAlgorithmAES128CBC:
 		keyLen = 16
-		algID = OIDEncryptionAlgorithmAES128CBC
+		algID = pkix.OIDEncryptionAlgorithmAES128CBC
 	case EncryptionAlgorithmAES256CBC:
 		keyLen = 32
-		algID = OIDEncryptionAlgorithmAES256CBC
+		algID = pkix.OIDEncryptionAlgorithmAES256CBC
 	default:
-		return nil, nil, fmt.Errorf("invalid ContentEncryptionAlgorithm in encryptAESCBC: %d", ContentEncryptionAlgorithm)
+		return nil, nil, pkerr.NewErrInvalidContentEncryptionAlgorithm("encryptAESCBC", ContentEncryptionAlgorithm.String())
 	}
 
 	if key == nil {
 		// Create AES key
 		key = make([]byte, keyLen)
 
-		_, err := rand.Read(key)
-		if err != nil {
-			return nil, nil, err
+		_, errNative := rand.Read(key)
+		if errNative != nil {
+			return nil, nil, pkerr.NewErrNative(errNative)
 		}
 	}
 
 	// Create CBC IV
 	iv := make([]byte, aes.BlockSize)
-	_, err := rand.Read(iv)
-	if err != nil {
-		return nil, nil, err
+	_, errNative := rand.Read(iv)
+	if errNative != nil {
+		return nil, nil, pkerr.NewErrNative(errNative)
 	}
 
 	// Encrypt padded content
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, nil, err
+	block, errNative := aes.NewCipher(key)
+	if errNative != nil {
+		return nil, nil, pkerr.NewErrNative(errNative)
 	}
 	mode := cipher.NewCBCEncrypter(block, iv)
-	plaintext, err := pad(content, mode.BlockSize())
-	if err != nil {
+	plaintext, err := intcrypto.Pad(content, mode.BlockSize())
+	if errNative != nil {
 		return nil, nil, err
 	}
 	cyphertext := make([]byte, len(plaintext))
@@ -206,7 +211,7 @@ func encryptAESCBC(ContentEncryptionAlgorithm EncryptionAlgorithm, content []byt
 // Encrypt creates and returns an envelope data PKCS7 structure with encrypted
 // recipient keys for each recipient public key.
 //
-// The algorithm used to perform encryption is determined by the current value
+// The algorithm used to perform intcrypto is determined by the current value
 // of the global ContentEncryptionAlgorithm package variable. By default, the
 // value is EncryptionAlgorithmDESCBC. To use a different algorithm, change the
 // value before calling Encrypt(). For example:
@@ -214,24 +219,20 @@ func encryptAESCBC(ContentEncryptionAlgorithm EncryptionAlgorithm, content []byt
 //	ContentEncryptionAlgorithm = EncryptionAlgorithmAES128GCM
 //
 // TODO(fullsailor): Add support for encrypting content with other algorithms
-func Encrypt(ContentEncryptionAlgorithm EncryptionAlgorithm, content []byte, recipients []*x509.Certificate) ([]byte, error) {
+func Encrypt(ContentEncryptionAlgorithm EncryptionAlgorithm, content []byte, recipients []*x509.Certificate) ([]byte, pkerr.Kerror) {
 	var eci *encryptedContentInfo
 	var key []byte
-	var err error
+	var err pkerr.Kerror
 
-	// Apply chosen symmetric encryption method
+	// Apply chosen symmetric intcrypto method
 	switch ContentEncryptionAlgorithm {
-	case EncryptionAlgorithmAES128CBC:
-		fallthrough
-	case EncryptionAlgorithmAES256CBC:
+	case EncryptionAlgorithmAES128CBC, EncryptionAlgorithmAES256CBC:
 		key, eci, err = encryptAESCBC(ContentEncryptionAlgorithm, content, nil)
-	case EncryptionAlgorithmAES128GCM:
-		fallthrough
-	case EncryptionAlgorithmAES256GCM:
+	case EncryptionAlgorithmAES128GCM, EncryptionAlgorithmAES256GCM:
 		key, eci, err = encryptAESGCM(ContentEncryptionAlgorithm, content, nil)
 
 	default:
-		return nil, ErrUnsupportedEncryptionAlgorithm
+		return nil, pkerr.NewErrUnsupportedEncryptionAlgorithm(ContentEncryptionAlgorithm.String())
 	}
 
 	if err != nil {
@@ -253,7 +254,7 @@ func Encrypt(ContentEncryptionAlgorithm EncryptionAlgorithm, content []byte, rec
 			Version:               0,
 			IssuerAndSerialNumber: ias,
 			KeyEncryptionAlgorithm: pkix.AlgorithmIdentifier{
-				Algorithm: OIDEncryptionAlgorithmRSASHA256,
+				Algorithm: pkix.OIDSignatureAlgorithmRSASHA256,
 			},
 			EncryptedKey: encrypted,
 		}
@@ -282,21 +283,21 @@ func Encrypt(ContentEncryptionAlgorithm EncryptionAlgorithm, content []byte, rec
 
 // EncryptUsingPSK creates and returns an encrypted data PKCS7 structure,
 // encrypted using caller provided pre-shared secret.
-func EncryptUsingPSK(ContentEncryptionAlgorithm EncryptionAlgorithm, content []byte, key []byte) ([]byte, error) {
+func EncryptUsingPSK(ContentEncryptionAlgorithm EncryptionAlgorithm, content []byte, key []byte) ([]byte, pkerr.Kerror) {
 	var eci *encryptedContentInfo
-	var err error
+	var err pkerr.Kerror
 
 	if key == nil {
-		return nil, ErrPSKNotProvided
+		return nil, pkerr.NewErrNoPSK()
 	}
 
-	// Apply chosen symmetric encryption method
+	// Apply chosen symmetric intcrypto method
 	switch ContentEncryptionAlgorithm {
 	case EncryptionAlgorithmAES128GCM, EncryptionAlgorithmAES256GCM:
 		_, eci, err = encryptAESGCM(ContentEncryptionAlgorithm, content, key)
 
 	default:
-		return nil, ErrUnsupportedEncryptionAlgorithm
+		return nil, pkerr.NewErrUnsupportedEncryptionAlgorithm(ContentEncryptionAlgorithm.String())
 	}
 
 	if err != nil {
@@ -327,21 +328,13 @@ func marshalEncryptedContent(content []byte) asn1.RawValue {
 	return asn1.RawValue{Tag: 0, Class: 2, Bytes: asn1Content, IsCompound: true}
 }
 
-func encryptKey(key []byte, recipient *x509.Certificate) ([]byte, error) {
+func encryptKey(key []byte, recipient *x509.Certificate) ([]byte, pkerr.Kerror) {
 	if pub := recipient.PublicKey.(*rsa.PublicKey); pub != nil {
-		return rsa.EncryptPKCS1v15(rand.Reader, pub, key)
+		out, err := rsa.EncryptPKCS1v15(rand.Reader, pub, key)
+		if err != nil {
+			return nil, pkerr.NewErrNative(err)
+		}
+		return out, nil
 	}
-	return nil, ErrUnsupportedDecryptionAlgorithm
-}
-
-func pad(data []byte, blocklen int) ([]byte, error) {
-	if blocklen < 1 {
-		return nil, fmt.Errorf("invalid blocklen %d", blocklen)
-	}
-	padlen := blocklen - (len(data) % blocklen)
-	if padlen == 0 {
-		padlen = blocklen
-	}
-	pad := bytes.Repeat([]byte{byte(padlen)}, padlen)
-	return append(data, pad...), nil
+	return nil, pkerr.NewErrUnsupportedEncryptionAlgorithm(recipient.PublicKeyAlgorithm.String())
 }

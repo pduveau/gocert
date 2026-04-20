@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pduveau/gocert/oids"
 	"github.com/pduveau/gocert/pkcs1"
+	"github.com/pduveau/gocert/pkix"
 	"github.com/pduveau/gocert/x509"
 )
 
@@ -204,14 +204,15 @@ QfjfFBG9JG2mUmYQP1KQ3SypGHzDW8vngvsGu//tNU0NFfOqQu4bYU4VpQl0nPtD
 -----END PKCS7-----`
 
 func TestVerifyApkEcdsa(t *testing.T) {
+	var errNative error
 	fixture := UnmarshalTestFixture(ApkEcdsaFixture)
 	p7, err := Parse(fixture.Input)
 	if err != nil {
 		t.Errorf("Parse encountered unexpected error: %v", err)
 	}
-	p7.Content, err = base64.StdEncoding.DecodeString(ApkEcdsaContent)
-	if err != nil {
-		t.Errorf("Failed to decode base64 signature file: %v", err)
+	p7.Content, errNative = base64.StdEncoding.DecodeString(ApkEcdsaContent)
+	if errNative != nil {
+		t.Errorf("Failed to decode base64 signature file: %v", errNative)
 	}
 	if err := p7.Verify(); err != nil {
 		t.Errorf("Verify failed with error: %v", err)
@@ -461,14 +462,14 @@ but that's not what ships are built for.
 
 	tmpContentFile.Write(content)
 	tmpContentFile.Close()
-	sigalgs := []oids.SignatureAlgorithm{
-		//		oids.SHA1WithRSA,
-		oids.RSAWithSHA256,
-		oids.RSAWithSHA512,
-		// oids.ECDSAWithSHA1,
-		oids.ECDSAWithSHA256,
-		oids.ECDSAWithSHA384,
-		oids.ECDSAWithSHA512,
+	sigalgs := []pkix.SignatureAlgorithm{
+		//		pkix.SHA1WithRSA,
+		pkix.RSAWithSHA256,
+		pkix.RSAWithSHA512,
+		// pkix.ECDSAWithSHA1,
+		pkix.ECDSAWithSHA256,
+		pkix.ECDSAWithSHA384,
+		pkix.ECDSAWithSHA512,
 	}
 	for _, sigalgroot := range sigalgs {
 		rootCert, err := createTestCertificateByIssuer("PKCS7 Test Root CA", nil, sigalgroot, true)

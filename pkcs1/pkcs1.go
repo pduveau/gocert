@@ -6,41 +6,41 @@ package pkcs1
 
 import (
 	"crypto/rsa"
-	"errors"
 	"math/big"
 
 	"github.com/pduveau/gocert/asn1"
 	"github.com/pduveau/gocert/internal/keys"
+	"github.com/pduveau/gocert/pkerr"
 )
 
 // ParsePKCS1PrivateKey parses an [RSA] private key in PKCS #1, ASN.1 DER form.
 //
 // This kind of key is commonly encoded in PEM blocks of type "RSA PRIVATE KEY".
-func ParsePKCS1PrivateKey(der []byte) (*rsa.PrivateKey, error) {
+func ParsePKCS1PrivateKey(der []byte) (*rsa.PrivateKey, pkerr.Kerror) {
 	var priv keys.Pkcs1PrivateKey
 	rest, err := asn1.Unmarshal(der, &priv)
 	if len(rest) > 0 {
-		return nil, asn1.SyntaxError{Msg: "trailing data"}
+		return nil, pkerr.NewErrAsn1Syntax("trailing data")
 	}
 	if err != nil {
 		if _, err := asn1.Unmarshal(der, &keys.EcPrivateKey{}); err == nil {
-			return nil, errors.New("x509: failed to parse private key (use ParseECPrivateKey instead for this key format)")
+			return nil, pkerr.NewErrFailToParsePrivateKeyGotoECP()
 		}
 		if _, err := asn1.Unmarshal(der, &keys.Pkcs8{}); err == nil {
-			return nil, errors.New("x509: failed to parse private key (use ParsePKCS8PrivateKey instead for this key format)")
+			return nil, pkerr.NewErrFailToParsePrivateKeyGotoPKCS8()
 		}
 		return nil, err
 	}
 
 	if priv.Version > 1 {
-		return nil, errors.New("x509: unsupported private key version")
+		return nil, pkerr.NewErrUnknownPrivateKeyVersion(priv.Version)
 	}
 
 	if priv.N.Sign() <= 0 || priv.D.Sign() <= 0 || priv.P.Sign() <= 0 || priv.Q.Sign() <= 0 ||
 		priv.Dp != nil && priv.Dp.Sign() <= 0 ||
 		priv.Dq != nil && priv.Dq.Sign() <= 0 ||
 		priv.Qinv != nil && priv.Qinv.Sign() <= 0 {
-		return nil, errors.New("x509: private key contains zero or negative value")
+		return nil, pkerr.NewErrRSAInvalidModulus()
 	}
 
 	key := new(rsa.PrivateKey)
@@ -58,7 +58,7 @@ func ParsePKCS1PrivateKey(der []byte) (*rsa.PrivateKey, error) {
 	key.Precomputed.Qinv = priv.Qinv
 	for i, a := range priv.AdditionalPrimes {
 		if a.Prime.Sign() <= 0 {
-			return nil, errors.New("x509: private key contains zero or negative prime")
+			return nil, pkerr.NewErrRSAInvalidPublicExponent()
 		}
 		key.Primes[i+2] = a.Prime
 		// We ignore the other two values because rsa will calculate
@@ -66,11 +66,7 @@ func ParsePKCS1PrivateKey(der []byte) (*rsa.PrivateKey, error) {
 	}
 
 	key.Precompute()
-	if err := key.Validate(); err != nil {
-		return nil, err
-	}
-
-	return key, nil
+	return key, pkerr.NewErrNative(key.Validate())
 }
 
 // MarshalPKCS1PrivateKey converts an [RSA] private key to PKCS #1, ASN.1 DER form.
@@ -116,24 +112,24 @@ func MarshalPKCS1PrivateKey(key *rsa.PrivateKey) []byte {
 // ParsePKCS1PublicKey parses an [RSA] public key in PKCS #1, ASN.1 DER form.
 //
 // This kind of key is commonly encoded in PEM blocks of type "RSA PUBLIC KEY".
-func ParsePKCS1PublicKey(der []byte) (*rsa.PublicKey, error) {
+func ParsePKCS1PublicKey(der []byte) (*rsa.PublicKey, pkerr.Kerror) {
 	var pub keys.Pkcs1PublicKey
 	rest, err := asn1.Unmarshal(der, &pub)
 	if err != nil {
 		if _, err := asn1.Unmarshal(der, &keys.PublicKeyInfo{}); err == nil {
-			return nil, errors.New("x509: failed to parse public key (use ParsePKIXPublicKey instead for this key format)")
+			return nil, pkerr.NewErrFailToParsePublicKeyGotoPKIX()
 		}
 		return nil, err
 	}
 	if len(rest) > 0 {
-		return nil, asn1.SyntaxError{Msg: "trailing data"}
+		return nil, pkerr.NewErrAsn1Syntax("trailing data")
 	}
 
 	if pub.N.Sign() <= 0 || pub.E <= 0 {
-		return nil, errors.New("x509: public key contains zero or negative value")
+		return nil, pkerr.NewErrRSAInvalidPublicExponent()
 	}
 	if pub.E > 1<<31-1 {
-		return nil, errors.New("x509: public key contains large public exponent")
+		return nil, pkerr.NewErrRSAInvalidPublicExponent()
 	}
 
 	return &rsa.PublicKey{

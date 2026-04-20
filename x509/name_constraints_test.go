@@ -1849,7 +1849,7 @@ func makeConstraintsCACert(constraints constraintsSpec, name string, key *ecdsa.
 	if parent == nil {
 		parent = template
 	}
-	derBytes, err := CreateCertificate(rand.Reader, template, parent, &key.PublicKey, parentKey)
+	derBytes, err := parent.SignCertificate(template, &key.PublicKey, parentKey)
 	if err != nil {
 		return nil, err
 	}
@@ -1920,7 +1920,7 @@ func makeConstraintsLeafCert(leaf leafSpec, key *ecdsa.PrivateKey, parent *Certi
 				panic("when using unknown name types, it must be the sole name")
 			}
 
-			template.ExtraExtensions = append(template.ExtraExtensions, Extension{
+			template.ExtraExtensions = append(template.ExtraExtensions, pkix.Extension{
 				Id: asn1.ObjectIdentifier{2, 5, 29, 17},
 				Value: []byte{
 					0x30, // SEQUENCE
@@ -1945,7 +1945,7 @@ func makeConstraintsLeafCert(leaf leafSpec, key *ecdsa.PrivateKey, parent *Certi
 		parent = template
 	}
 
-	derBytes, err := CreateCertificate(rand.Reader, template, parent, &key.PublicKey, parentKey)
+	derBytes, err := parent.SignCertificate(template, &key.PublicKey, parentKey)
 	if err != nil {
 		return nil, err
 	}
@@ -1953,7 +1953,7 @@ func makeConstraintsLeafCert(leaf leafSpec, key *ecdsa.PrivateKey, parent *Certi
 	return ParseCertificate(derBytes)
 }
 
-func customConstraintsExtension(typeNum int, constraint []byte, isExcluded bool) Extension {
+func customConstraintsExtension(typeNum int, constraint []byte, isExcluded bool) pkix.Extension {
 	appendConstraint := func(contents []byte, tag uint8) []byte {
 		contents = append(contents, tag|32 /* constructed */ |0x80 /* context-specific */)
 		contents = append(contents, byte(4+len(constraint)) /* length */)
@@ -1976,7 +1976,7 @@ func customConstraintsExtension(typeNum int, constraint []byte, isExcluded bool)
 	value = append(value, byte(len(contents)))
 	value = append(value, contents...)
 
-	return Extension{
+	return pkix.Extension{
 		Id:    asn1.ObjectIdentifier{2, 5, 29, 30},
 		Value: value,
 	}

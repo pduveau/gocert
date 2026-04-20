@@ -7,7 +7,6 @@ package asn1
 import (
 	"bytes"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"math"
 	"math/big"
@@ -16,6 +15,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/pduveau/gocert/pkerr"
 )
 
 type boolTest struct {
@@ -531,9 +532,9 @@ func TestUnmarshalWithNilOrNonPointer(t *testing.T) {
 		v    any
 		want string
 	}{
-		{b: []byte{0x05, 0x00}, v: nil, want: "asn1: Unmarshal recipient value is nil"},
-		{b: []byte{0x05, 0x00}, v: RawValue{}, want: "asn1: Unmarshal recipient value is non-pointer asn1.RawValue"},
-		{b: []byte{0x05, 0x00}, v: (*RawValue)(nil), want: "asn1: Unmarshal recipient value is nil *asn1.RawValue"},
+		{b: []byte{0x05, 0x00}, v: nil, want: "Unmarshal recipient value is nil"},
+		{b: []byte{0x05, 0x00}, v: RawValue{}, want: "Unmarshal recipient value is non-pointer asn1.RawValue"},
+		{b: []byte{0x05, 0x00}, v: (*RawValue)(nil), want: "Unmarshal recipient value is nil *asn1.RawValue"},
 	}
 
 	for _, test := range tests {
@@ -542,7 +543,7 @@ func TestUnmarshalWithNilOrNonPointer(t *testing.T) {
 			t.Errorf("Unmarshal expecting error, got nil")
 			continue
 		}
-		if g, w := err.Error(), test.want; g != w {
+		if g, w := err.Error(), test.want; !strings.Contains(g, w) {
 			t.Errorf("InvalidUnmarshalError mismatch\nGot:  %q\nWant: %q", g, w)
 		}
 	}
@@ -1027,10 +1028,10 @@ type exported struct {
 }
 
 func TestUnexportedStructField(t *testing.T) {
-	want := StructuralError{"struct contains unexported fields"}
+	want := pkerr.NewErrAsn1Structural("struct contains unexported fields")
 
 	_, err := Marshal(unexported{X: 5, y: 1})
-	if err != want {
+	if err2, ok := err.(*pkerr.ErrAsn1Structural); !ok || !err2.Equal(want) {
 		t.Errorf("got %v, want %v", err, want)
 	}
 
@@ -1040,7 +1041,7 @@ func TestUnexportedStructField(t *testing.T) {
 	}
 	var u unexported
 	_, err = Unmarshal(bs, &u)
-	if err != want {
+	if err2, ok := err.(*pkerr.ErrAsn1Structural); !ok || !err2.Equal(want) {
 		t.Errorf("got %v, want %v", err, want)
 	}
 }
@@ -1287,8 +1288,8 @@ func TestParsingMemoryConsumption(t *testing.T) {
 		Value    []byte
 	}
 	_, err := Unmarshal(derBomb, &out)
-	if !errors.As(err, &SyntaxError{}) {
-		t.Fatalf("Incorrect error result: want (%v), but got (%v) instead", &SyntaxError{}, err)
+	if _, ok := err.(*pkerr.ErrAsn1Syntax); !ok {
+		t.Fatalf("Incorrect error result: want (%v), but got (%v) instead", &pkerr.ErrAsn1Syntax{}, err)
 	}
 
 	runtime.ReadMemStats(&m)

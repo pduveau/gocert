@@ -5,27 +5,27 @@
 package pkcs12
 
 import (
-	"fmt"
 	"unicode/utf16"
 
 	"github.com/pduveau/gocert/asn1"
+	"github.com/pduveau/gocert/pkerr"
 )
 
 // unmarshal calls asn1.Unmarshal, but also returns an error if there is any
 // trailing data after unmarshaling.
-func unmarshal(in []byte, out interface{}) error {
+func unmarshal(in []byte, out interface{}, object string) pkerr.Kerror {
 	trailing, err := asn1.Unmarshal(in, out)
 	if err != nil {
 		return err
 	}
 	if len(trailing) != 0 {
-		return fmt.Errorf("pkcs12: trailing data found")
+		return pkerr.NewErrASN1TrailingData(object)
 	}
 	return nil
 }
 
 // bmpStringZeroTerminated returns s encoded in UCS-2 with a zero terminator.
-func bmpStringZeroTerminated(s string) ([]byte, error) {
+func bmpStringZeroTerminated(s string) ([]byte, pkerr.Kerror) {
 	// References:
 	// https://tools.ietf.org/html/rfc7292#appendix-B.1
 	// The above RFC provides the info that BMPStrings are NULL terminated.
@@ -39,7 +39,7 @@ func bmpStringZeroTerminated(s string) ([]byte, error) {
 }
 
 // bmpString returns s encoded in UCS-2
-func bmpString(s string) ([]byte, error) {
+func bmpString(s string) ([]byte, pkerr.Kerror) {
 	// References:
 	// https://tools.ietf.org/html/rfc7292#appendix-B.1
 	// https://en.wikipedia.org/wiki/Plane_(Unicode)#Basic_Multilingual_Plane
@@ -50,7 +50,7 @@ func bmpString(s string) ([]byte, error) {
 
 	for _, r := range s {
 		if t, _ := utf16.EncodeRune(r); t != 0xfffd {
-			return nil, fmt.Errorf("pkcs12: string contains characters that cannot be encoded in UCS-2")
+			return nil, pkerr.NewErrCharUnsupportedInUCS2()
 		}
 		ret = append(ret, byte(r/256), byte(r%256))
 	}
@@ -58,9 +58,9 @@ func bmpString(s string) ([]byte, error) {
 	return ret, nil
 }
 
-func decodeBMPString(bmpString []byte) (string, error) {
+func decodeBMPString(bmpString []byte) (string, pkerr.Kerror) {
 	if len(bmpString)%2 != 0 {
-		return "", fmt.Errorf("pkcs12: odd-length BMP string")
+		return "", pkerr.NewErrOddLengthBMPString()
 	}
 
 	// strip terminator if present

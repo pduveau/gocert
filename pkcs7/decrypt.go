@@ -8,61 +8,55 @@ import (
 	"crypto/des"
 	"crypto/rand"
 	"crypto/rsa"
-	"errors"
-	"fmt"
 
 	"github.com/pduveau/gocert/asn1"
+	"github.com/pduveau/gocert/internal/intcrypto"
+	"github.com/pduveau/gocert/pkerr"
+	"github.com/pduveau/gocert/pkix"
 	"github.com/pduveau/gocert/x509"
 )
 
-// ErrUnsupportedDecryptionAlgorithm tells you when our quick dev assumptions have failed
-var ErrUnsupportedDecryptionAlgorithm = errors.New("pkcs7: cannot decrypt data: only RSA, DES, TripleDES, AES-256-CBC and AES-128-GCM supported")
-
-// ErrNotEncryptedContent is returned when attempting to Decrypt data that is not encrypted data
-var ErrNotEncryptedContent = errors.New("pkcs7: content data is a decryptable data type")
-
 // Decrypt decrypts encrypted content info for recipient cert and private key
-func (p7 *PKCS7) Decrypt(cert *x509.Certificate, pkey crypto.PrivateKey) ([]byte, error) {
+func (p7 *PKCS7) Decrypt(cert *x509.Certificate, pkey crypto.PrivateKey) ([]byte, pkerr.Kerror) {
 	data, ok := p7.raw.(envelopedData)
 	if !ok {
-		return nil, ErrNotEncryptedContent
+		return nil, pkerr.NewErrDecryptableDataType()
 	}
 	recipient := selectRecipientForCertificate(data.RecipientInfos, cert)
 	if recipient.EncryptedKey == nil {
-		return nil, errors.New("pkcs7: no enveloped recipient for provided certificate")
+		return nil, pkerr.NewErrNoEnvelopForCertificate()
 	}
 	switch k := pkey.(type) {
 	case *rsa.PrivateKey:
 		var contentKey []byte
 		contentKey, err := rsa.DecryptPKCS1v15(rand.Reader, k, recipient.EncryptedKey)
 		if err != nil {
-			return nil, err
+			return nil, pkerr.NewErrNative(err)
 		}
 		return data.EncryptedContentInfo.decrypt(contentKey)
 	}
-	return nil, ErrUnsupportedDecryptionAlgorithm
+	return nil, pkerr.NewErrCannotDecryptData()
 }
 
 // DecryptUsingPSK decrypts encrypted data using caller provided
 // pre-shared secret
-func (p7 *PKCS7) DecryptUsingPSK(key []byte) ([]byte, error) {
+func (p7 *PKCS7) DecryptUsingPSK(key []byte) ([]byte, pkerr.Kerror) {
 	data, ok := p7.raw.(encryptedData)
 	if !ok {
-		return nil, ErrNotEncryptedContent
+		return nil, pkerr.NewErrDecryptableDataType()
 	}
 	return data.EncryptedContentInfo.decrypt(key)
 }
 
-func (eci encryptedContentInfo) decrypt(key []byte) ([]byte, error) {
+func (eci encryptedContentInfo) decrypt(key []byte) ([]byte, pkerr.Kerror) {
 	alg := eci.ContentEncryptionAlgorithm.Algorithm
 	if !alg.Equal(oidDecryptionAlgorithmDESCBC) &&
 		!alg.Equal(oidDecryptionAlgorithmDESEDE3CBC) &&
-		!alg.Equal(OIDEncryptionAlgorithmAES256CBC) &&
-		!alg.Equal(OIDEncryptionAlgorithmAES128CBC) &&
-		!alg.Equal(OIDEncryptionAlgorithmAES128GCM) &&
-		!alg.Equal(OIDEncryptionAlgorithmAES256GCM) {
-		fmt.Printf("Unsupported Content Encryption Algorithm: %s\n", alg)
-		return nil, ErrUnsupportedDecryptionAlgorithm
+		!alg.Equal(pkix.OIDEncryptionAlgorithmAES256CBC) &&
+		!alg.Equal(pkix.OIDEncryptionAlgorithmAES128CBC) &&
+		!alg.Equal(pkix.OIDEncryptionAlgorithmAES128GCM) &&
+		!alg.Equal(pkix.OIDEncryptionAlgorithmAES256GCM) {
+		return nil, pkerr.NewErrUnsupportedEncryptionAlgorithm(alg.String())
 	}
 
 	// EncryptedContent can either be constructed of multple OCTET STRINGs
@@ -87,24 +81,22 @@ func (eci encryptedContentInfo) decrypt(key []byte) ([]byte, error) {
 	}
 
 	var block cipher.Block
-	var err error
+	var errNative error
 
 	switch {
 	case alg.Equal(oidDecryptionAlgorithmDESCBC):
-		block, err = des.NewCipher(key)
+		block, errNative = des.NewCipher(key)
 	case alg.Equal(oidDecryptionAlgorithmDESEDE3CBC):
-		block, err = des.NewTripleDESCipher(key)
-	case alg.Equal(OIDEncryptionAlgorithmAES256CBC), alg.Equal(OIDEncryptionAlgorithmAES256GCM):
-		fallthrough
-	case alg.Equal(OIDEncryptionAlgorithmAES128GCM), alg.Equal(OIDEncryptionAlgorithmAES128CBC):
-		block, err = aes.NewCipher(key)
+		block, errNative = des.NewTripleDESCipher(key)
+	default:
+		block, errNative = aes.NewCipher(key)
 	}
 
-	if err != nil {
-		return nil, err
+	if errNative != nil {
+		return nil, pkerr.NewErrNative(errNative)
 	}
 
-	if alg.Equal(OIDEncryptionAlgorithmAES128GCM) || alg.Equal(OIDEncryptionAlgorithmAES256GCM) {
+	if alg.Equal(pkix.OIDEncryptionAlgorithmAES128GCM) || alg.Equal(pkix.OIDEncryptionAlgorithmAES256GCM) {
 		params := aesGCMParameters{}
 		paramBytes := eci.ContentEncryptionAlgorithm.Parameters.Bytes
 
@@ -113,59 +105,35 @@ func (eci encryptedContentInfo) decrypt(key []byte) ([]byte, error) {
 			return nil, err
 		}
 
-		gcm, err := cipher.NewGCM(block)
-		if err != nil {
-			return nil, err
+		gcm, errNative := cipher.NewGCM(block)
+		if errNative != nil {
+			return nil, pkerr.NewErrNative(errNative)
 		}
 
 		if len(params.Nonce) != gcm.NonceSize() {
-			return nil, errors.New("pkcs7: encryption algorithm parameters are incorrect")
+			return nil, pkerr.NewErrInvalidAlgorithmParams()
 		}
 		if params.ICVLen != gcm.Overhead() {
-			return nil, errors.New("pkcs7: encryption algorithm parameters are incorrect")
+			return nil, pkerr.NewErrInvalidAlgorithmParams()
 		}
 
-		plaintext, err := gcm.Open(nil, params.Nonce, cyphertext, nil)
-		if err != nil {
-			return nil, err
-		}
-
-		return plaintext, nil
+		plaintext, errNative := gcm.Open(nil, params.Nonce, cyphertext, nil)
+		return plaintext, pkerr.NewErrNative(errNative)
 	}
 
 	iv := eci.ContentEncryptionAlgorithm.Parameters.Bytes
 	if len(iv) != block.BlockSize() {
-		return nil, errors.New("pkcs7: encryption algorithm parameters are malformed")
+		return nil, pkerr.NewErrInvalidAlgorithmParams()
 	}
 	mode := cipher.NewCBCDecrypter(block, iv)
 	plaintext := make([]byte, len(cyphertext))
 	mode.CryptBlocks(plaintext, cyphertext)
-	if plaintext, err = unpad(plaintext, mode.BlockSize()); err != nil {
+
+	var err pkerr.Kerror
+	if plaintext, err = intcrypto.Unpad(plaintext, mode.BlockSize()); err != nil {
 		return nil, err
 	}
 	return plaintext, nil
-}
-
-func unpad(data []byte, blocklen int) ([]byte, error) {
-	if blocklen < 1 {
-		return nil, fmt.Errorf("invalid blocklen %d", blocklen)
-	}
-	if len(data)%blocklen != 0 || len(data) == 0 {
-		return nil, fmt.Errorf("invalid data len %d", len(data))
-	}
-
-	// the last byte is the length of padding
-	padlen := int(data[len(data)-1])
-
-	// check padding integrity, all bytes should be the same
-	pad := data[len(data)-padlen:]
-	for _, padbyte := range pad {
-		if padbyte != byte(padlen) {
-			return nil, errors.New("invalid padding")
-		}
-	}
-
-	return data[:len(data)-padlen], nil
 }
 
 func selectRecipientForCertificate(recipients []recipientInfo, cert *x509.Certificate) recipientInfo {

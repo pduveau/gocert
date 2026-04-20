@@ -5,12 +5,12 @@ import (
 	"crypto"
 	"crypto/rand"
 	"crypto/sha256"
-	"errors"
-	"fmt"
 	"math/big"
 	"time"
 
 	"github.com/pduveau/gocert/asn1"
+	"github.com/pduveau/gocert/crl"
+	"github.com/pduveau/gocert/pkerr"
 	"github.com/pduveau/gocert/pkix"
 	"github.com/pduveau/gocert/x509"
 )
@@ -21,13 +21,13 @@ type SignedData struct {
 	certs               []*x509.Certificate
 	data, messageDigest []byte
 	digestOid           asn1.ObjectIdentifier
-	encryptionOid       asn1.ObjectIdentifier
+	intcryptoOid        asn1.ObjectIdentifier
 }
 
 // NewSignedData takes data and initializes a PKCS7 SignedData struct that is
 // ready to be signed via AddSigner. The digest algorithm is set to SHA1 by default
 // and can be changed by calling SetDigestAlgorithm.
-func NewSignedData(data []byte) (*SignedData, error) {
+func NewSignedData(data []byte) (*SignedData, pkerr.Kerror) {
 	signedData, err := newSignedData(OIDDataContentType, data)
 	if err != nil {
 		return nil, err
@@ -38,7 +38,7 @@ func NewSignedData(data []byte) (*SignedData, error) {
 // NewSignedDigest takes message digest and initializes a PKCS7 SignedData struct that is
 // ready to be signed via AddSigner. The digest algorithm is set to SHA1 by default
 // and can be changed by calling SetDigestAlgorithm.
-func NewSignedDigest(digest []byte) (*SignedData, error) {
+func NewSignedDigest(digest []byte) (*SignedData, pkerr.Kerror) {
 	signedData, err := newSignedDigest(OIDDataContentType, digest)
 	if err != nil {
 		return nil, err
@@ -69,7 +69,7 @@ func NewSignedDigest(digest []byte) (*SignedData, error) {
 // NewSignedDataWithContentType takes content type and data and initializes a PKCS7 SignedData struct that is
 // ready to be signed via AddSigner. The digest algorithm is set to SHA1 by default
 // and can be changed by calling SetDigestAlgorithm.
-func NewSignedDataWithContentType(contentType asn1.ObjectIdentifier, data []byte) (*SignedData, error) {
+func NewSignedDataWithContentType(contentType asn1.ObjectIdentifier, data []byte) (*SignedData, pkerr.Kerror) {
 	signedData, err := newSignedData(contentType, data)
 	if err != nil {
 		return nil, err
@@ -77,7 +77,7 @@ func NewSignedDataWithContentType(contentType asn1.ObjectIdentifier, data []byte
 	return signedData, nil
 }
 
-func newSignedData(contentType asn1.ObjectIdentifier, data []byte) (*SignedData, error) {
+func newSignedData(contentType asn1.ObjectIdentifier, data []byte) (*SignedData, pkerr.Kerror) {
 	content, err := asn1.Marshal(data)
 	if err != nil {
 		return nil, err
@@ -90,10 +90,10 @@ func newSignedData(contentType asn1.ObjectIdentifier, data []byte) (*SignedData,
 		ContentInfo: ci,
 		Version:     1,
 	}
-	return &SignedData{sd: sd, data: data, digestOid: OIDDigestAlgorithmSHA256}, nil
+	return &SignedData{sd: sd, data: data, digestOid: pkix.OIDDigestAlgorithmSHA256}, nil
 }
 
-func newSignedDigest(contentType asn1.ObjectIdentifier, digest []byte) (*SignedData, error) {
+func newSignedDigest(contentType asn1.ObjectIdentifier, digest []byte) (*SignedData, pkerr.Kerror) {
 	ci := contentInfo{
 		ContentType: contentType,
 	}
@@ -101,7 +101,7 @@ func newSignedDigest(contentType asn1.ObjectIdentifier, digest []byte) (*SignedD
 		ContentInfo: ci,
 		Version:     1,
 	}
-	return &SignedData{sd: sd, messageDigest: digest, digestOid: OIDDigestAlgorithmSHA256}, nil
+	return &SignedData{sd: sd, messageDigest: digest, digestOid: pkix.OIDDigestAlgorithmSHA256}, nil
 }
 
 // SignerInfoConfig are optional values to include when adding a signer
@@ -115,9 +115,9 @@ type signedData struct {
 	Version                    int                        `asn1:"default:1"`
 	DigestAlgorithmIdentifiers []pkix.AlgorithmIdentifier `asn1:"set"`
 	ContentInfo                contentInfo
-	Certificates               rawCertificates        `asn1:"optional,tag:0"`
-	CRLs                       []x509.CertificateList `asn1:"optional,tag:1"`
-	SignerInfos                []signerInfo           `asn1:"set"`
+	Certificates               rawCertificates       `asn1:"optional,tag:0"`
+	CRLs                       []crl.CertificateList `asn1:"optional,tag:1"`
+	SignerInfos                []signerInfo          `asn1:"set"`
 }
 
 type signerInfo struct {
@@ -135,7 +135,7 @@ type attribute struct {
 	Value asn1.RawValue `asn1:"set"`
 }
 
-func marshalAttributes(attrs []attribute) ([]byte, error) {
+func marshalAttributes(attrs []attribute) ([]byte, pkerr.Kerror) {
 	encodedAttributes, err := asn1.MarshalWithParams(attrs, "set")
 	if err != nil {
 		return nil, err
@@ -160,15 +160,15 @@ func (sd *SignedData) SetDigestAlgorithm(d asn1.ObjectIdentifier) {
 	sd.digestOid = d
 }
 
-// SetEncryptionAlgorithm sets the encryption algorithm to be used in the signing process.
+// SetEncryptionAlgorithm sets the intcrypto algorithm to be used in the signing process.
 //
 // This should be called before adding signers
 func (sd *SignedData) SetEncryptionAlgorithm(d asn1.ObjectIdentifier) {
-	sd.encryptionOid = d
+	sd.intcryptoOid = d
 }
 
 // AddSigner is a wrapper around AddSignerChain() that adds a signer without any parent.
-func (sd *SignedData) AddSigner(ee *x509.Certificate, pkey crypto.PrivateKey, config SignerInfoConfig) error {
+func (sd *SignedData) AddSigner(ee *x509.Certificate, pkey crypto.PrivateKey, config SignerInfoConfig) pkerr.Kerror {
 	var parents []*x509.Certificate
 	return sd.addSignerChain(ee, pkey, parents, config, true, true, true)
 }
@@ -189,7 +189,7 @@ func (sd *SignedData) AddSigner(ee *x509.Certificate, pkey crypto.PrivateKey, co
 
 // AddSignerNoChain is a wrapper around AddSignerChain() that adds a signer without any parent.
 // Use this method, if no certificate needs to be placed in SignedData certificates
-func (sd *SignedData) AddSignerNoChain(ee *x509.Certificate, pkey crypto.PrivateKey, config SignerInfoConfig) error {
+func (sd *SignedData) AddSignerNoChain(ee *x509.Certificate, pkey crypto.PrivateKey, config SignerInfoConfig) pkerr.Kerror {
 	var parents []*x509.Certificate
 	return sd.addSignerChain(ee, pkey, parents, config, false, true, true)
 }
@@ -207,7 +207,7 @@ func (sd *SignedData) AddSignerNoChain(ee *x509.Certificate, pkey crypto.Private
 // the issuer of the end-entity signer is stored in the issuerAndSerialNumber
 // section of the SignedData.SignerInfo, alongside the serial number of
 // the end-entity.
-func (sd *SignedData) AddSignerChain(ee *x509.Certificate, pkey crypto.PrivateKey, chain []*x509.Certificate, config SignerInfoConfig) error {
+func (sd *SignedData) AddSignerChain(ee *x509.Certificate, pkey crypto.PrivateKey, chain []*x509.Certificate, config SignerInfoConfig) pkerr.Kerror {
 	return sd.addSignerChain(ee, pkey, chain, config, true, true, true)
 }
 
@@ -226,13 +226,13 @@ func (sd *SignedData) AddSignerChain(ee *x509.Certificate, pkey crypto.PrivateKe
 // the issuer of the end-entity signer is stored in the issuerAndSerialNumber
 // section of the SignedData.SignerInfo, alongside the serial number of
 // the end-entity.
-func (sd *SignedData) AddSignerChainPAdES(ee *x509.Certificate, pkey crypto.PrivateKey, chain []*x509.Certificate, config SignerInfoConfig) error {
+func (sd *SignedData) AddSignerChainPAdES(ee *x509.Certificate, pkey crypto.PrivateKey, chain []*x509.Certificate, config SignerInfoConfig) pkerr.Kerror {
 	return sd.addSignerChain(ee, pkey, chain, config, true, false, false)
 }
 
-func (sd *SignedData) addSignerChain(ee *x509.Certificate, pkey crypto.PrivateKey, chain []*x509.Certificate, config SignerInfoConfig, includeCertificates bool, enableSigningTime bool, enableSigningCertV2 bool) error {
+func (sd *SignedData) addSignerChain(ee *x509.Certificate, pkey crypto.PrivateKey, chain []*x509.Certificate, config SignerInfoConfig, includeCertificates bool, enableSigningTime bool, enableSigningCertV2 bool) pkerr.Kerror {
 	sd.sd.DigestAlgorithmIdentifiers = append(sd.sd.DigestAlgorithmIdentifiers, pkix.AlgorithmIdentifier{Algorithm: sd.digestOid})
-	hash, err := getHashForOID(sd.digestOid)
+	hash, err := pkix.GetHashForOID(sd.digestOid)
 	if err != nil {
 		return err
 	}
@@ -241,7 +241,7 @@ func (sd *SignedData) addSignerChain(ee *x509.Certificate, pkey crypto.PrivateKe
 		h.Write(sd.data)
 		sd.messageDigest = h.Sum(nil)
 	}
-	encryptionOid, err := getOIDForEncryptionAlgorithm(pkey, sd.digestOid)
+	intcryptoOid, err := pkix.GetEncryptionAlgorithmOID(pkey, sd.digestOid)
 	if err != nil {
 		return err
 	}
@@ -297,7 +297,7 @@ func (sd *SignedData) addSignerChain(ee *x509.Certificate, pkey crypto.PrivateKe
 		AuthenticatedAttributes:   finalAttrs,
 		UnauthenticatedAttributes: finalUnsignedAttrs,
 		DigestAlgorithm:           pkix.AlgorithmIdentifier{Algorithm: sd.digestOid},
-		DigestEncryptionAlgorithm: pkix.AlgorithmIdentifier{Algorithm: encryptionOid},
+		DigestEncryptionAlgorithm: pkix.AlgorithmIdentifier{Algorithm: intcryptoOid},
 		IssuerAndSerialNumber:     ias,
 		EncryptedDigest:           signature,
 		Version:                   1,
@@ -321,10 +321,11 @@ func (sd *SignedData) addSignerChain(ee *x509.Certificate, pkey crypto.PrivateKe
 // This function is needed to sign old Android APKs, something you probably
 // shouldn't do unless you're maintaining backward compatibility for old
 // applications.
-func (sd *SignedData) SignWithoutAttr(ee *x509.Certificate, pkey crypto.PrivateKey, config SignerInfoConfig) error {
+func (sd *SignedData) SignWithoutAttr(ee *x509.Certificate, pkey crypto.PrivateKey, config SignerInfoConfig) pkerr.Kerror {
 	var signature []byte
+	var errNative error
 	sd.sd.DigestAlgorithmIdentifiers = append(sd.sd.DigestAlgorithmIdentifiers, pkix.AlgorithmIdentifier{Algorithm: sd.digestOid})
-	hash, err := getHashForOID(sd.digestOid)
+	hash, err := pkix.GetHashForOID(sd.digestOid)
 	if err != nil {
 		return err
 	}
@@ -335,27 +336,27 @@ func (sd *SignedData) SignWithoutAttr(ee *x509.Certificate, pkey crypto.PrivateK
 	}
 	key, ok := pkey.(crypto.Signer)
 	if !ok {
-		return errors.New("pkcs7: private key does not implement crypto.Signer")
+		return pkerr.NewErrPrivateKeyIsNotSigner()
 	}
-	signature, err = key.Sign(rand.Reader, sd.messageDigest, hash)
-	if err != nil {
-		return err
+	signature, errNative = key.Sign(rand.Reader, sd.messageDigest, hash)
+	if errNative != nil {
+		return pkerr.NewErrNative(errNative)
 	}
 	var ias issuerAndSerial
 	ias.SerialNumber = ee.SerialNumber
 	// no parent, the issue is the end-entity cert itself
 	ias.IssuerName = asn1.RawValue{FullBytes: ee.RawIssuer}
-	if sd.encryptionOid == nil {
-		// if the encryption algorithm wasn't set by SetEncryptionAlgorithm,
+	if sd.intcryptoOid == nil {
+		// if the intcrypto algorithm wasn't set by SetEncryptionAlgorithm,
 		// infer it from the digest algorithm
-		sd.encryptionOid, err = getOIDForEncryptionAlgorithm(pkey, sd.digestOid)
+		sd.intcryptoOid, err = pkix.GetEncryptionAlgorithmOID(pkey, sd.digestOid)
 	}
 	if err != nil {
 		return err
 	}
 	signer := signerInfo{
 		DigestAlgorithm:           pkix.AlgorithmIdentifier{Algorithm: sd.digestOid},
-		DigestEncryptionAlgorithm: pkix.AlgorithmIdentifier{Algorithm: sd.encryptionOid},
+		DigestEncryptionAlgorithm: pkix.AlgorithmIdentifier{Algorithm: sd.intcryptoOid},
 		IssuerAndSerialNumber:     ias,
 		EncryptedDigest:           signature,
 		Version:                   1,
@@ -366,7 +367,7 @@ func (sd *SignedData) SignWithoutAttr(ee *x509.Certificate, pkey crypto.PrivateK
 	return nil
 }
 
-func (si *signerInfo) SetUnauthenticatedAttributes(extraUnsignedAttrs []Attribute) error {
+func (si *signerInfo) SetUnauthenticatedAttributes(extraUnsignedAttrs []Attribute) pkerr.Kerror {
 	unsignedAttrs := &attributes{}
 	for _, attr := range extraUnsignedAttrs {
 		unsignedAttrs.Add(attr.Type, attr.Value)
@@ -382,17 +383,17 @@ func (si *signerInfo) SetUnauthenticatedAttributes(extraUnsignedAttrs []Attribut
 }
 
 // TimestampTokenRequestCallback callback of timestamp token request.
-type TimestampTokenRequestCallback func(digest []byte) ([]byte, error)
+type TimestampTokenRequestCallback func(digest []byte) ([]byte, pkerr.Kerror)
 
 // RequestSignerTimestampToken add request of timestamp token with `signerID`
 // the request of timestamp token is called within `callback` function.
-func (sd *SignedData) RequestSignerTimestampToken(signerID int, callback TimestampTokenRequestCallback) error {
+func (sd *SignedData) RequestSignerTimestampToken(signerID int, callback TimestampTokenRequestCallback) pkerr.Kerror {
 	if len(sd.sd.SignerInfos) < (signerID + 1) {
-		return fmt.Errorf("no signer information found for ID %d", signerID)
+		return pkerr.NewErrNoSignerInformationFound(signerID)
 	}
 
 	if callback == nil {
-		return fmt.Errorf("no callback defined")
+		return pkerr.NewErrNoCallBackDefined()
 	}
 
 	tst, err := callback(sd.sd.SignerInfos[signerID].EncryptedDigest)
@@ -404,9 +405,9 @@ func (sd *SignedData) RequestSignerTimestampToken(signerID int, callback Timesta
 
 // AddTimestampTokenToSigner inserts `tst` TimestampToken which described in RFC3161 into
 // unauthenticated attribute of `signerID` which obtaioned from identity service.
-func (sd *SignedData) AddTimestampTokenToSigner(signerID int, tst []byte) (err error) {
+func (sd *SignedData) AddTimestampTokenToSigner(signerID int, tst []byte) (err pkerr.Kerror) {
 	if len(sd.sd.SignerInfos) < (signerID + 1) {
-		return fmt.Errorf("no signer information found for ID %d", signerID)
+		return pkerr.NewErrNoSignerInfo(signerID)
 	}
 
 	// Add the timestamp token to the unauthenticated attributes.
@@ -440,7 +441,7 @@ func (sd *SignedData) GetSignedData() *signedData {
 }
 
 // Finish marshals the content and its signers
-func (sd *SignedData) Finish() ([]byte, error) {
+func (sd *SignedData) Finish() ([]byte, pkerr.Kerror) {
 	sd.sd.Certificates = marshalCertificates(sd.certs)
 	inner, err := asn1.Marshal(sd.sd)
 	if err != nil {
@@ -472,13 +473,13 @@ func (sd *SignedData) RemoveUnauthenticatedAttributes() {
 // then continue down the path. It doesn't require the last parent to be a root CA,
 // or to be trusted in any truststore. It simply verifies that the chain provided, albeit
 // partial, makes sense.
-func verifyPartialChain(cert *x509.Certificate, parents []*x509.Certificate) error {
+func verifyPartialChain(cert *x509.Certificate, parents []*x509.Certificate) pkerr.Kerror {
 	if len(parents) == 0 {
-		return fmt.Errorf("pkcs7: zero parents provided to verify the signature of certificate %q", cert.Subject.CommonName)
+		return pkerr.NewErrNoParentToVerify(cert.Subject.CommonName)
 	}
 	err := cert.CheckSignatureFrom(parents[0])
 	if err != nil {
-		return fmt.Errorf("pkcs7: certificate signature from parent is invalid: %v", err)
+		return pkerr.NewErrInvalidSignatureByParent(err)
 	}
 	if len(parents) == 1 {
 		// there is no more parent to check, return
@@ -487,7 +488,7 @@ func verifyPartialChain(cert *x509.Certificate, parents []*x509.Certificate) err
 	return verifyPartialChain(parents[0], parents[1:])
 }
 
-func cert2issuerAndSerial(cert *x509.Certificate) (issuerAndSerial, error) {
+func cert2issuerAndSerial(cert *x509.Certificate) (issuerAndSerial, pkerr.Kerror) {
 	var ias issuerAndSerial
 	// The issuer RDNSequence has to match exactly the sequence in the certificate
 	// We cannot use cert.Issuer.ToRDNSequence() here since it mangles the sequence
@@ -498,7 +499,7 @@ func cert2issuerAndSerial(cert *x509.Certificate) (issuerAndSerial, error) {
 }
 
 // signs the DER encoded form of the attributes with the private key
-func signAttributes(attrs []attribute, pkey crypto.PrivateKey, digestAlg crypto.Hash) ([]byte, error) {
+func signAttributes(attrs []attribute, pkey crypto.PrivateKey, digestAlg crypto.Hash) ([]byte, pkerr.Kerror) {
 	attrBytes, err := marshalAttributes(attrs)
 	if err != nil {
 		return nil, err
@@ -509,9 +510,10 @@ func signAttributes(attrs []attribute, pkey crypto.PrivateKey, digestAlg crypto.
 
 	key, ok := pkey.(crypto.Signer)
 	if !ok {
-		return nil, errors.New("pkcs7: private key does not implement crypto.Signer")
+		return nil, pkerr.NewErrPrivateKeyNotASigner()
 	}
-	return key.Sign(rand.Reader, hash, digestAlg)
+	out, errNative := key.Sign(rand.Reader, hash, digestAlg)
+	return out, pkerr.NewErrNative(errNative)
 }
 
 // concats and wraps the certificates in the RawValue structure
@@ -527,7 +529,7 @@ func marshalCertificates(certs []*x509.Certificate) rawCertificates {
 // Even though, the tag & length are stripped out during marshalling the
 // RawContent, we have to encode it into the RawContent. If its missing,
 // then `asn1.Marshal()` will strip out the certificate wrapper instead.
-func marshalCertificateBytes(certs []byte) (rawCertificates, error) {
+func marshalCertificateBytes(certs []byte) (rawCertificates, pkerr.Kerror) {
 	var val = asn1.RawValue{Bytes: certs, Class: 2, Tag: 0, IsCompound: true}
 	b, err := asn1.Marshal(val)
 	if err != nil {
@@ -538,7 +540,7 @@ func marshalCertificateBytes(certs []byte) (rawCertificates, error) {
 
 // DegenerateCertificate creates a signed data structure containing only the
 // provided certificate or certificate chain.
-func DegenerateCertificate(cert []byte) ([]byte, error) {
+func DegenerateCertificate(cert []byte) ([]byte, pkerr.Kerror) {
 	rawCert, err := marshalCertificateBytes(cert)
 	if err != nil {
 		return nil, err
@@ -548,7 +550,7 @@ func DegenerateCertificate(cert []byte) ([]byte, error) {
 		Version:      1,
 		ContentInfo:  emptyContent,
 		Certificates: rawCert,
-		CRLs:         []x509.CertificateList{},
+		CRLs:         []crl.CertificateList{},
 	}
 	content, err := asn1.Marshal(sd)
 	if err != nil {
@@ -561,7 +563,7 @@ func DegenerateCertificate(cert []byte) ([]byte, error) {
 	return asn1.Marshal(signedContent)
 }
 
-func populateSigningCertificateV2Ext(certificate *x509.Certificate) ([]byte, error) {
+func populateSigningCertificateV2Ext(certificate *x509.Certificate) ([]byte, pkerr.Kerror) {
 	h := sha256.New()
 	h.Write(certificate.Raw)
 
