@@ -3,17 +3,14 @@ package pkcs7
 
 import (
 	"bytes"
-	"crypto"
-	"crypto/ecdsa"
-	"crypto/rsa"
-	"errors"
-	"fmt"
 	"io"
 	"sort"
 
 	_ "crypto/sha1" // for crypto.SHA1
 
 	"github.com/pduveau/gocert/asn1"
+	"github.com/pduveau/gocert/crl"
+	"github.com/pduveau/gocert/pkerr"
 	"github.com/pduveau/gocert/x509"
 )
 
@@ -21,7 +18,7 @@ import (
 type PKCS7 struct {
 	Content      []byte
 	Certificates []*x509.Certificate
-	CRLs         []x509.CertificateList
+	CRLs         []crl.CertificateList
 	Signers      []signerInfo
 	raw          interface{}
 }
@@ -30,13 +27,6 @@ type contentInfo struct {
 	ContentType asn1.ObjectIdentifier
 	Content     asn1.RawValue `asn1:"explicit,optional,tag:0"`
 }
-
-// ErrUnsupportedContentType is returned when a PKCS7 content is not supported.
-// Currently only Data (1.2.840.113549.1.7.1), Signed Data (1.2.840.113549.1.7.2),
-// and Enveloped Data are supported (1.2.840.113549.1.7.3)
-var ErrUnsupportedContentType = errors.New("pkcs7: cannot parse data: unimplemented content type")
-
-type unsignedData []byte
 
 var (
 	// Signed Data OIDs
@@ -51,96 +41,15 @@ var (
 	OIDAttributeSigningCertificateV2 = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 16, 2, 47}
 	OIDAttributeAdobeRevocation      = asn1.ObjectIdentifier{1, 2, 840, 113583, 1, 1, 8}
 
-	// Digest Algorithms for compatibility while parsing
-	oidDigestAlgorithmSHA1 = asn1.ObjectIdentifier{1, 3, 14, 3, 2, 26}
-
-	// Digest Algorithms
-	OIDDigestAlgorithmSHA256 = asn1.ObjectIdentifier{2, 16, 840, 1, 101, 3, 4, 2, 1}
-	OIDDigestAlgorithmSHA384 = asn1.ObjectIdentifier{2, 16, 840, 1, 101, 3, 4, 2, 2}
-	OIDDigestAlgorithmSHA512 = asn1.ObjectIdentifier{2, 16, 840, 1, 101, 3, 4, 2, 3}
-
-	OIDDigestAlgorithmECDSASHA256 = asn1.ObjectIdentifier{1, 2, 840, 10045, 4, 3, 2}
-	OIDDigestAlgorithmECDSASHA384 = asn1.ObjectIdentifier{1, 2, 840, 10045, 4, 3, 3}
-	OIDDigestAlgorithmECDSASHA512 = asn1.ObjectIdentifier{1, 2, 840, 10045, 4, 3, 4}
-
-	// Signature Algorithms
-	OIDEncryptionAlgorithmRSA       = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 1}
-	OIDEncryptionAlgorithmRSASHA256 = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 11}
-	OIDEncryptionAlgorithmRSASHA384 = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 12}
-	OIDEncryptionAlgorithmRSASHA512 = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 13}
-
-	OIDEncryptionAlgorithmECDSAP256 = asn1.ObjectIdentifier{1, 2, 840, 10045, 3, 1, 7}
-	OIDEncryptionAlgorithmECDSAP384 = asn1.ObjectIdentifier{1, 3, 132, 0, 34}
-	OIDEncryptionAlgorithmECDSAP521 = asn1.ObjectIdentifier{1, 3, 132, 0, 35}
-
 	// Decryption only Algorithms for compatibility
 	oidDecryptionAlgorithmDESCBC     = asn1.ObjectIdentifier{1, 3, 14, 3, 2, 7}
 	oidDecryptionAlgorithmDESEDE3CBC = asn1.ObjectIdentifier{1, 2, 840, 113549, 3, 7}
-
-	// Encryption Algorithms
-	OIDEncryptionAlgorithmAES128CBC = asn1.ObjectIdentifier{2, 16, 840, 1, 101, 3, 4, 1, 2}
-	OIDEncryptionAlgorithmAES128GCM = asn1.ObjectIdentifier{2, 16, 840, 1, 101, 3, 4, 1, 6}
-	OIDEncryptionAlgorithmAES256CBC = asn1.ObjectIdentifier{2, 16, 840, 1, 101, 3, 4, 1, 42}
-	OIDEncryptionAlgorithmAES256GCM = asn1.ObjectIdentifier{2, 16, 840, 1, 101, 3, 4, 1, 46}
 )
 
-func getHashForOID(oid asn1.ObjectIdentifier) (crypto.Hash, error) {
-	switch {
-	case oid.Equal(oidDigestAlgorithmSHA1):
-		return crypto.SHA1, nil
-	case oid.Equal(OIDDigestAlgorithmSHA256), oid.Equal(OIDDigestAlgorithmECDSASHA256):
-		return crypto.SHA256, nil
-	case oid.Equal(OIDDigestAlgorithmSHA384), oid.Equal(OIDDigestAlgorithmECDSASHA384):
-		return crypto.SHA384, nil
-	case oid.Equal(OIDDigestAlgorithmSHA512), oid.Equal(OIDDigestAlgorithmECDSASHA512):
-		return crypto.SHA512, nil
-	}
-	return crypto.Hash(0), ErrUnsupportedDecryptionAlgorithm
-}
-
-// EncryptionAlgorithmReporter allows custom crypto.Signer implementations
-// to report their encryption algorithm OID.
-type EncryptionAlgorithmReporter interface {
-	EncryptionAlgorithmOID() asn1.ObjectIdentifier
-}
-
-// getOIDForEncryptionAlgorithm takes the private key type of the signer and
-// the OID of a digest algorithm to return the appropriate signerInfo.DigestEncryptionAlgorithm
-func getOIDForEncryptionAlgorithm(pkey crypto.PrivateKey, OIDDigestAlg asn1.ObjectIdentifier) (asn1.ObjectIdentifier, error) {
-	// Evaluate whether pkey implements custom EncryptionAlgorithmReporter.
-	reporter, ok := pkey.(EncryptionAlgorithmReporter)
-	if ok {
-		return reporter.EncryptionAlgorithmOID(), nil
-	}
-
-	switch pkey.(type) {
-	case *rsa.PrivateKey:
-		switch {
-		case OIDDigestAlg.Equal(OIDDigestAlgorithmSHA256):
-			return OIDEncryptionAlgorithmRSASHA256, nil
-		case OIDDigestAlg.Equal(OIDDigestAlgorithmSHA384):
-			return OIDEncryptionAlgorithmRSASHA384, nil
-		case OIDDigestAlg.Equal(OIDDigestAlgorithmSHA512):
-			return OIDEncryptionAlgorithmRSASHA512, nil
-		}
-	case *ecdsa.PrivateKey:
-		switch {
-		case OIDDigestAlg.Equal(OIDDigestAlgorithmSHA256):
-			return OIDDigestAlgorithmECDSASHA256, nil
-		case OIDDigestAlg.Equal(OIDDigestAlgorithmSHA384):
-			return OIDDigestAlgorithmECDSASHA384, nil
-		case OIDDigestAlg.Equal(OIDDigestAlgorithmSHA512):
-			return OIDDigestAlgorithmECDSASHA512, nil
-		}
-	}
-	return nil, fmt.Errorf("pkcs7: cannot convert encryption algorithm to oid, unknown private key type %T", pkey)
-
-}
-
 // Parse decodes a DER encoded PKCS7 package
-func Parse(data []byte) (p7 *PKCS7, err error) {
+func Parse(data []byte) (p7 *PKCS7, err pkerr.Kerror) {
 	if len(data) == 0 {
-		return nil, errors.New("pkcs7: input data is empty")
+		return nil, pkerr.NewErrEmptyInputData()
 	}
 	var info contentInfo
 	der, err := ber2der(data)
@@ -149,7 +58,7 @@ func Parse(data []byte) (p7 *PKCS7, err error) {
 	}
 	rest, err := asn1.Unmarshal(der, &info)
 	if len(rest) > 0 {
-		err = asn1.SyntaxError{Msg: "trailing data"}
+		err = pkerr.NewErrAsn1Syntax("trailing data")
 		return
 	}
 	if err != nil {
@@ -157,38 +66,80 @@ func Parse(data []byte) (p7 *PKCS7, err error) {
 	}
 
 	// fmt.Printf("--> Content Type: %s", info.ContentType)
+	var pkcs7 PKCS7
 	switch {
 	case info.ContentType.Equal(OIDSignedDataContentType):
-		return parseSignedData(info.Content.Bytes)
+		pkcs7.parseSignedData(info.Content.Bytes)
 	case info.ContentType.Equal(OIDEnvelopedDataContentType):
-		return parseEnvelopedData(info.Content.Bytes)
+		pkcs7.parseEnvelopedData(info.Content.Bytes)
 	case info.ContentType.Equal(OIDEncryptedDataContentType):
-		return parseEncryptedData(info.Content.Bytes)
+		pkcs7.parseEncryptedData(info.Content.Bytes)
+	default:
+		return nil, pkerr.NewErrUnsupportedContentType()
 	}
-	return nil, ErrUnsupportedContentType
+	return &pkcs7, nil
 }
 
-func parseEnvelopedData(data []byte) (*PKCS7, error) {
+func (pkcs7 *PKCS7) parseEnvelopedData(data []byte) (err pkerr.Kerror) {
 	var ed envelopedData
-	if _, err := asn1.Unmarshal(data, &ed); err != nil {
-		return nil, err
+	_, err = asn1.Unmarshal(data, &ed)
+	if err == nil {
+		pkcs7.raw = ed
 	}
-	return &PKCS7{
-		raw: ed,
-	}, nil
+	return
 }
 
-func parseEncryptedData(data []byte) (*PKCS7, error) {
+func (pkcs7 *PKCS7) parseEncryptedData(data []byte) (err pkerr.Kerror) {
 	var ed encryptedData
-	if _, err := asn1.Unmarshal(data, &ed); err != nil {
-		return nil, err
+	_, err = asn1.Unmarshal(data, &ed)
+	if err == nil {
+		pkcs7.raw = ed
 	}
-	return &PKCS7{
-		raw: ed,
-	}, nil
+	return
 }
 
-func (raw rawCertificates) Parse() ([]*x509.Certificate, error) {
+func (pkcs7 *PKCS7) parseSignedData(data []byte) (err pkerr.Kerror) {
+	var sd signedData
+	_, err = asn1.Unmarshal(data, &sd)
+	if err != nil {
+		return
+	}
+	pkcs7.Certificates, err = sd.Certificates.Parse()
+	if err != nil {
+		return
+	}
+	// fmt.Printf("--> Signed Data Version %d\n", sd.Version)
+
+	var compound asn1.RawValue
+
+	// The Content.Bytes maybe empty on PKI responses.
+	if len(sd.ContentInfo.Content.Bytes) > 0 {
+		_, err = asn1.Unmarshal(sd.ContentInfo.Content.Bytes, &compound)
+		if err != nil {
+			return
+		}
+	}
+	// Compound octet string
+	if compound.IsCompound {
+		if compound.Tag == 4 {
+			_, err = asn1.Unmarshal(compound.Bytes, &pkcs7.Content)
+			if err != nil {
+				return
+			}
+		} else {
+			pkcs7.Content = compound.Bytes
+		}
+	} else {
+		// assuming this is tag 04
+		pkcs7.Content = compound.Bytes
+	}
+	pkcs7.CRLs = sd.CRLs
+	pkcs7.Signers = sd.SignerInfos
+	pkcs7.raw = sd
+	return
+}
+
+func (raw rawCertificates) Parse() ([]*x509.Certificate, pkerr.Kerror) {
 	if len(raw.Raw) == 0 {
 		return nil, nil
 	}
@@ -250,7 +201,7 @@ func (sa attributeSet) Attributes() []attribute {
 	return attrs
 }
 
-func (attrs *attributes) ForMarshalling() ([]attribute, error) {
+func (attrs *attributes) ForMarshalling() ([]attribute, pkerr.Kerror) {
 	sortables := make(attributeSet, len(attrs.types))
 	for i := range sortables {
 		attrType := attrs.types[i]

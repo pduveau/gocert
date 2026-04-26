@@ -6,16 +6,16 @@ package x509
 
 import (
 	"crypto/x509/internal/macos"
-	"errors"
-	"fmt"
+
+	"github.com/pduveau/gocert/pkerr"
 )
 
-func (c *Certificate) systemVerify(opts *VerifyOptions) (chains [][]*Certificate, err error) {
+func (c *Certificate) systemVerify(opts *VerifyOptions) (chains [][]*Certificate, err pkerr.Pkerror) {
 	certs := macos.CFArrayCreateMutable()
 	defer macos.ReleaseCFArray(certs)
 	leaf, err := macos.SecCertificateCreateWithData(c.Raw)
 	if err != nil {
-		return nil, errors.New("invalid leaf certificate")
+		return nil, pkerr.NewErrInvalidLeafCertificate()
 	}
 	macos.CFArrayAppendValue(certs, leaf)
 	if opts.Intermediates != nil {
@@ -62,13 +62,13 @@ func (c *Certificate) systemVerify(opts *VerifyOptions) (chains [][]*Certificate
 	if ret, err := macos.SecTrustEvaluateWithError(trustObj); err != nil {
 		switch ret {
 		case macos.ErrSecCertificateExpired:
-			return nil, CertificateInvalidError{c, Expired, err.Error()}
+			return nil, pkerr.NewErrCertificateInvalid(pkerr.Expired, err.Error())
 		case macos.ErrSecHostNameMismatch:
-			return nil, HostnameError{c, opts.DNSName}
+			return nil, HostnameError(opts.DNSName, c)
 		case macos.ErrSecNotTrusted:
-			return nil, UnknownAuthorityError{Cert: c}
+			return nil, UnknownAuthorityError(nil, nil)
 		default:
-			return nil, fmt.Errorf("x509: %s", err)
+			return nil, pkerr.NewBaseErrorFromNativeError(err)
 		}
 	}
 
@@ -88,7 +88,7 @@ func (c *Certificate) systemVerify(opts *VerifyOptions) (chains [][]*Certificate
 	}
 	if len(chain[0]) == 0 {
 		// This should _never_ happen, but to be safe
-		return nil, errors.New("x509: macos certificate verification internal error")
+		return nil, pkerr.NewErrMacOSInternal()
 	}
 
 	if opts.DNSName != "" {
@@ -111,14 +111,14 @@ func (c *Certificate) systemVerify(opts *VerifyOptions) (chains [][]*Certificate
 	}
 
 	if !checkChainForKeyUsage(chain[0], keyUsages) {
-		return nil, CertificateInvalidError{c, IncompatibleUsage, ""}
+		return nil, pkerr.NewErrCertificateInvalid(pkerr.IncompatibleUsage)
 	}
 
 	return chain, nil
 }
 
 // exportCertificate returns a *Certificate for a SecCertificateRef.
-func exportCertificate(cert macos.CFRef) (*Certificate, error) {
+func exportCertificate(cert macos.CFRef) (*Certificate, pkerr.Pkerror) {
 	data, err := macos.SecCertificateCopyData(cert)
 	if err != nil {
 		return nil, err
@@ -126,6 +126,6 @@ func exportCertificate(cert macos.CFRef) (*Certificate, error) {
 	return ParseCertificate(data)
 }
 
-func loadSystemRoots() (*CertPool, error) {
+func loadSystemRoots() (*CertPool, pkerr.Pkerror) {
 	return &CertPool{systemPool: true}, nil
 }

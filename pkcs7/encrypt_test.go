@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/pduveau/gocert/oids"
+	"github.com/pduveau/gocert/internal/intcrypto"
+	"github.com/pduveau/gocert/pkix"
 	"github.com/pduveau/gocert/x509"
 )
 
@@ -15,9 +16,9 @@ func TestEncrypt(t *testing.T) {
 		EncryptionAlgorithmAES128GCM,
 		EncryptionAlgorithmAES256GCM,
 	}
-	sigalgs := []oids.SignatureAlgorithm{
-		oids.RSAWithSHA256,
-		oids.RSAWithSHA512,
+	sigalgs := []pkix.SignatureAlgorithm{
+		pkix.RSAWithSHA256,
+		pkix.RSAWithSHA512,
 	}
 	for _, mode := range modes {
 		for _, sigalg := range sigalgs {
@@ -84,7 +85,7 @@ func TestPad(t *testing.T) {
 		{[]byte{0x1, 0x2, 0x3, 0x0, 0x0, 0x0, 0x0, 0x0}, []byte{0x1, 0x2, 0x3, 0x0, 0x0, 0x0, 0x0, 0x0, 0x8, 0x8, 0x8, 0x8, 0x8, 0x8, 0x8, 0x8}, 8},
 	}
 	for _, test := range tests {
-		padded, err := pad(test.Original, test.BlockSize)
+		padded, err := intcrypto.Pad(test.Original, test.BlockSize)
 		if err != nil {
 			t.Errorf("pad encountered error: %s", err)
 			continue

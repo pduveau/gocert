@@ -1,13 +1,14 @@
 package pkcs5
 
 import (
-	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"fmt"
 
 	"github.com/pduveau/gocert/asn1"
-	"github.com/pduveau/gocert/oids"
+	"github.com/pduveau/gocert/internal/intcrypto"
+	"github.com/pduveau/gocert/pkerr"
+	"github.com/pduveau/gocert/pkix"
 )
 
 // ErrDecryption represents a failure to decrypt the input.
@@ -31,48 +32,38 @@ func (c cipherWithBlock) OID() asn1.ObjectIdentifier {
 	return c.oid
 }
 
-func (c cipherWithBlock) Encrypt(key, iv, plaintext []byte) ([]byte, error) {
+func (c cipherWithBlock) Encrypt(key, iv, plaintext []byte) ([]byte, pkerr.Kerror) {
 	return cbcEncrypt(key, iv, plaintext)
 }
 
-func (c cipherWithBlock) Decrypt(key, iv, ciphertext []byte) ([]byte, error) {
+func (c cipherWithBlock) Decrypt(key, iv, ciphertext []byte) ([]byte, pkerr.Kerror) {
 	return cbcDecrypt(key, iv, ciphertext)
 }
 
-func cbcEncrypt(key, iv, plaintext []byte) ([]byte, error) {
+func cbcEncrypt(key, iv, plaintext []byte) ([]byte, pkerr.Kerror) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
-		return nil, err
+		return nil, pkerr.NewErrNative(err)
 	}
 	mode := cipher.NewCBCEncrypter(block, iv)
-	paddingLen := aes.BlockSize - (len(plaintext) % aes.BlockSize)
-	ciphertext := make([]byte, len(plaintext)+paddingLen)
-	copy(ciphertext, plaintext)
-	copy(ciphertext[len(plaintext):], bytes.Repeat([]byte{byte(paddingLen)}, paddingLen))
+	ciphertext, err := intcrypto.Pad(plaintext, aes.BlockSize)
+	if err != nil {
+		return nil, pkerr.NewErrNative(err)
+	}
 	mode.CryptBlocks(ciphertext, ciphertext)
 	return ciphertext, nil
 }
 
-func cbcDecrypt(key, iv, ciphertext []byte) ([]byte, error) {
+func cbcDecrypt(key, iv, ciphertext []byte) ([]byte, pkerr.Kerror) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
-		return nil, err
+		return nil, pkerr.NewErrNative(err)
 	}
 	mode := cipher.NewCBCDecrypter(block, iv)
 	plaintext := make([]byte, len(ciphertext))
 	mode.CryptBlocks(plaintext, ciphertext)
-	psLen := int(plaintext[len(plaintext)-1])
 
-	if len(plaintext) < psLen {
-		return nil, ErrDecryption
-	}
-
-	ps := plaintext[len(plaintext)-psLen:]
-	plaintext = plaintext[:len(plaintext)-psLen]
-	if !bytes.Equal(ps, bytes.Repeat([]byte{byte(psLen)}, psLen)) {
-		return nil, ErrDecryption
-	}
-	return plaintext, nil
+	return intcrypto.Unpad(plaintext, aes.BlockSize)
 }
 
 // Cipher represents a cipher for encrypting the key material.
@@ -82,51 +73,51 @@ type Cipher interface {
 	// KeySize returns the key size of the cipher, in bytes.
 	KeySize() int
 	// Encrypt encrypts the key material.
-	Encrypt(key, iv, plaintext []byte) ([]byte, error)
+	Encrypt(key, iv, plaintext []byte) ([]byte, pkerr.Kerror)
 	// Decrypt decrypts the key material.
-	Decrypt(key, iv, ciphertext []byte) ([]byte, error)
+	Decrypt(key, iv, ciphertext []byte) ([]byte, pkerr.Kerror)
 	// OID returns the OID of the cipher specified.
 	OID() asn1.ObjectIdentifier
 }
 
-func NewCipher(oid oids.CipherOID) (Cipher, error) {
+func NewCipher(oid pkix.CipherOID) (Cipher, pkerr.Kerror) {
 	a1oid := oid.ToAsn1()
 	switch {
 	// AES128CBC is the 128-bit key AES cipher in CBC mode.
-	case oid.Equal(oids.OidAES128CBC):
+	case oid.Equal(pkix.OidAES128CBC):
 		return &cipherWithBlock{
 			ivSize:  aes.BlockSize,
 			keySize: 16,
 			oid:     a1oid,
 		}, nil
 	// AES192CBC is the 192-bit key AES cipher in CBC mode.
-	case oid.Equal(oids.OidAES192CBC):
+	case oid.Equal(pkix.OidAES192CBC):
 		return &cipherWithBlock{
 			ivSize:  aes.BlockSize,
 			keySize: 24,
 			oid:     a1oid,
 		}, nil
 	// AES256CBC is the 256-bit key AES cipher in CBC mode.
-	case oid.Equal(oids.OidAES256CBC):
+	case oid.Equal(pkix.OidAES256CBC):
 		return &cipherWithBlock{
 			ivSize:  aes.BlockSize,
 			keySize: 32,
 			oid:     a1oid,
 		}, nil
 	}
-	return nil, fmt.Errorf("pksc5: unsupported Encryption algorithm (%s)", a1oid.String())
+	return nil, pkerr.NewErrUnsupportedEncryptionAlgorithm(a1oid.String())
 }
 
 func NewDefaultCipher() *cipherWithBlock {
 	return &cipherWithBlock{
 		ivSize:  aes.BlockSize,
 		keySize: 32,
-		oid:     oids.OidAES256CBC.ToAsn1(),
+		oid:     pkix.OidAES256CBC.ToAsn1(),
 	}
 }
 
 func NewDefaultPBMAC1Cipher() *cipherWithBlock {
 	return &cipherWithBlock{
-		oid: oids.OidHMACWithSHA256.ToAsn1(),
+		oid: pkix.OidHMACWithSHA256.ToAsn1(),
 	}
 }

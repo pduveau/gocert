@@ -9,7 +9,11 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
+	"hash"
 	"math/big"
+
+	"github.com/pduveau/gocert/asn1"
+	"github.com/pduveau/gocert/pkerr"
 )
 
 var (
@@ -181,4 +185,21 @@ func pbkdf(hash func([]byte) []byte, u, v int, salt, password []byte, r int, ID 
 	//    should be set after the 64 bits have been produced.  Similar concerns
 	//    hold for 2-key and 3-key triple-DES keys, for CDMF keys, and for any
 	//    similar keys with parity bits "built into them".
+}
+
+func pkdkfKeyAndDigest(algo asn1.ObjectIdentifier, salt, password []byte, iterations int) (hFn func() hash.Hash, key []byte, err pkerr.Kerror) {
+	switch {
+	case algo.Equal(oidSHA1):
+		hFn = sha1.New
+		key = pbkdf(sha1Sum, 20, 64, salt, password, iterations, 3, 20)
+	case algo.Equal(oidSHA256):
+		hFn = sha256.New
+		key = pbkdf(sha256Sum, 32, 64, salt, password, iterations, 3, 32)
+	case algo.Equal(oidSHA512):
+		hFn = sha512.New
+		key = pbkdf(sha512Sum, 64, 128, salt, password, iterations, 3, 64)
+	default:
+		err = pkerr.NewErrMacDigestUnsupportedAlgorithm(algo.String())
+	}
+	return
 }

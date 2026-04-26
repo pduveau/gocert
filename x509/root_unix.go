@@ -11,6 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/pduveau/gocert/pkerr"
 )
 
 const (
@@ -25,11 +27,11 @@ const (
 	certDirEnv = "SSL_CERT_DIR"
 )
 
-func (c *Certificate) systemVerify(opts *VerifyOptions) (chains [][]*Certificate, err error) {
+func (c *Certificate) systemVerify(opts *VerifyOptions) (chains [][]*Certificate, err pkerr.Pkerror) {
 	return nil, nil
 }
 
-func loadSystemRoots() (*CertPool, error) {
+func loadSystemRoots() (*CertPool, pkerr.Pkerror) {
 	roots := NewCertPool()
 
 	files := certFiles
@@ -37,7 +39,7 @@ func loadSystemRoots() (*CertPool, error) {
 		files = []string{f}
 	}
 
-	var firstErr error
+	var firstErr pkerr.Pkerror
 	for _, file := range files {
 		data, err := os.ReadFile(file)
 		if err == nil {
@@ -45,7 +47,7 @@ func loadSystemRoots() (*CertPool, error) {
 			break
 		}
 		if firstErr == nil && !os.IsNotExist(err) {
-			firstErr = err
+			firstErr = pkerr.NewBaseErrorFromNativeError(err)
 		}
 	}
 
@@ -83,10 +85,10 @@ func loadSystemRoots() (*CertPool, error) {
 
 // readUniqueDirectoryEntries is like os.ReadDir but omits
 // symlinks that point within the directory.
-func readUniqueDirectoryEntries(dir string) ([]fs.DirEntry, error) {
+func readUniqueDirectoryEntries(dir string) ([]fs.DirEntry, pkerr.Pkerror) {
 	files, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, err
+		return nil, pkerr.NewBaseErrorFromNativeError(err)
 	}
 	uniq := files[:0]
 	for _, f := range files {

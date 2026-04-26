@@ -7,9 +7,10 @@
 package macos
 
 import (
-	"errors"
 	"strconv"
 	"unsafe"
+
+	"github.com/pduveau/gocert/pkerr"
 )
 
 // Security.framework linker flags for the external linker. See Issue 42459.
@@ -39,12 +40,12 @@ func (s OSStatus) Error() string {
 
 //go:cgo_import_dynamic x509_SecTrustCreateWithCertificates SecTrustCreateWithCertificates "/System/Library/Frameworks/Security.framework/Versions/A/Security"
 
-func SecTrustCreateWithCertificates(certs CFRef, policies CFRef) (CFRef, error) {
+func SecTrustCreateWithCertificates(certs CFRef, policies CFRef) (CFRef, pkerr.Pkerror) {
 	var trustObj CFRef
 	ret := syscall(FuncPCABI0(x509_SecTrustCreateWithCertificates_trampoline), uintptr(certs), uintptr(policies),
 		uintptr(unsafe.Pointer(&trustObj)), 0, 0, 0)
 	if int32(ret) != 0 {
-		return 0, OSStatus{"SecTrustCreateWithCertificates", int32(ret)}
+		return 0, pkerr.NewErrOSStatus("SecTrustCreateWithCertificates", int32(ret))
 	}
 	return trustObj, nil
 }
@@ -52,14 +53,14 @@ func x509_SecTrustCreateWithCertificates_trampoline()
 
 //go:cgo_import_dynamic x509_SecCertificateCreateWithData SecCertificateCreateWithData "/System/Library/Frameworks/Security.framework/Versions/A/Security"
 
-func SecCertificateCreateWithData(b []byte) (CFRef, error) {
+func SecCertificateCreateWithData(b []byte) (CFRef, pkerr.Pkerror) {
 	data := BytesToCFData(b)
 	defer CFRelease(data)
 	ret := syscall(FuncPCABI0(x509_SecCertificateCreateWithData_trampoline), kCFAllocatorDefault, uintptr(data), 0, 0, 0, 0)
 	// Returns NULL if the data passed in the data parameter is not a valid
 	// DER-encoded X.509 certificate.
 	if ret == 0 {
-		return 0, errors.New("SecCertificateCreateWithData: invalid certificate")
+		return 0, pkerr.NewErrMacOSInvalidCertificate()
 	}
 	return CFRef(ret), nil
 }
@@ -67,7 +68,7 @@ func x509_SecCertificateCreateWithData_trampoline()
 
 //go:cgo_import_dynamic x509_SecPolicyCreateSSL SecPolicyCreateSSL "/System/Library/Frameworks/Security.framework/Versions/A/Security"
 
-func SecPolicyCreateSSL(name string) (CFRef, error) {
+func SecPolicyCreateSSL(name string) (CFRef, pkerr.Pkerror) {
 	var hostname CFString
 	if name != "" {
 		hostname = StringToCFString(name)
@@ -75,7 +76,7 @@ func SecPolicyCreateSSL(name string) (CFRef, error) {
 	}
 	ret := syscall(FuncPCABI0(x509_SecPolicyCreateSSL_trampoline), 1 /* true */, uintptr(hostname), 0, 0, 0, 0)
 	if ret == 0 {
-		return 0, OSStatus{"SecPolicyCreateSSL", int32(ret)}
+		return 0, pkerr.NewErrOSStatus("SecPolicyCreateSSL", int32(ret))
 	}
 	return CFRef(ret), nil
 }
@@ -83,10 +84,10 @@ func x509_SecPolicyCreateSSL_trampoline()
 
 //go:cgo_import_dynamic x509_SecTrustSetVerifyDate SecTrustSetVerifyDate "/System/Library/Frameworks/Security.framework/Versions/A/Security"
 
-func SecTrustSetVerifyDate(trustObj CFRef, dateRef CFRef) error {
+func SecTrustSetVerifyDate(trustObj CFRef, dateRef CFRef) pkerr.Pkerror {
 	ret := syscall(FuncPCABI0(x509_SecTrustSetVerifyDate_trampoline), uintptr(trustObj), uintptr(dateRef), 0, 0, 0, 0)
 	if int32(ret) != 0 {
-		return OSStatus{"SecTrustSetVerifyDate", int32(ret)}
+		return pkerr.NewErrOSStatus("SecTrustSetVerifyDate", int32(ret))
 	}
 	return nil
 }
@@ -94,11 +95,11 @@ func x509_SecTrustSetVerifyDate_trampoline()
 
 //go:cgo_import_dynamic x509_SecTrustEvaluate SecTrustEvaluate "/System/Library/Frameworks/Security.framework/Versions/A/Security"
 
-func SecTrustEvaluate(trustObj CFRef) (CFRef, error) {
+func SecTrustEvaluate(trustObj CFRef) (CFRef, pkerr.Pkerror) {
 	var result CFRef
 	ret := syscall(FuncPCABI0(x509_SecTrustEvaluate_trampoline), uintptr(trustObj), uintptr(unsafe.Pointer(&result)), 0, 0, 0, 0)
 	if int32(ret) != 0 {
-		return 0, OSStatus{"SecTrustEvaluate", int32(ret)}
+		return 0, pkerr.NewErrOSStatus("SecTrustEvaluate", int32(ret))
 	}
 	return CFRef(result), nil
 }
@@ -106,12 +107,12 @@ func x509_SecTrustEvaluate_trampoline()
 
 //go:cgo_import_dynamic x509_SecTrustEvaluateWithError SecTrustEvaluateWithError "/System/Library/Frameworks/Security.framework/Versions/A/Security"
 
-func SecTrustEvaluateWithError(trustObj CFRef) (int, error) {
+func SecTrustEvaluateWithError(trustObj CFRef) (int, pkerr.Pkerror) {
 	var errRef CFRef
 	ret := syscall(FuncPCABI0(x509_SecTrustEvaluateWithError_trampoline), uintptr(trustObj), uintptr(unsafe.Pointer(&errRef)), 0, 0, 0, 0)
 	if int32(ret) != 1 {
 		errStr := CFErrorCopyDescription(errRef)
-		err := errors.New(CFStringToString(errStr))
+		err := pkerr.NewErrMacOSGeneric(CFStringToString(errStr))
 		errCode := CFErrorGetCode(errRef)
 		CFRelease(errRef)
 		CFRelease(errStr)
@@ -123,10 +124,10 @@ func x509_SecTrustEvaluateWithError_trampoline()
 
 //go:cgo_import_dynamic x509_SecCertificateCopyData SecCertificateCopyData "/System/Library/Frameworks/Security.framework/Versions/A/Security"
 
-func SecCertificateCopyData(cert CFRef) ([]byte, error) {
+func SecCertificateCopyData(cert CFRef) ([]byte, pkerr.Pkerror) {
 	ret := syscall(FuncPCABI0(x509_SecCertificateCopyData_trampoline), uintptr(cert), 0, 0, 0, 0, 0)
 	if ret == 0 {
-		return nil, errors.New("x509: invalid certificate object")
+		return nil, pkerr.NewErrInvalidCertificate()
 	}
 	b := CFDataToSlice(CFRef(ret))
 	CFRelease(CFRef(ret))
@@ -136,10 +137,10 @@ func x509_SecCertificateCopyData_trampoline()
 
 //go:cgo_import_dynamic x509_SecTrustCopyCertificateChain SecTrustCopyCertificateChain "/System/Library/Frameworks/Security.framework/Versions/A/Security"
 
-func SecTrustCopyCertificateChain(trustObj CFRef) (CFRef, error) {
+func SecTrustCopyCertificateChain(trustObj CFRef) (CFRef, pkerr.Pkerror) {
 	ret := syscall(FuncPCABI0(x509_SecTrustCopyCertificateChain_trampoline), uintptr(trustObj), 0, 0, 0, 0, 0)
 	if ret == 0 {
-		return 0, OSStatus{"SecTrustCopyCertificateChain", int32(ret)}
+		return 0, pkerr.NewErrOSStatus("SecTrustCopyCertificateChain", int32(ret))
 	}
 	return CFRef(ret), nil
 }

@@ -15,9 +15,10 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/pem"
-	"errors"
 	"io"
 	"strings"
+
+	"github.com/pduveau/gocert/pkerr"
 )
 
 type PEMCipher int
@@ -96,7 +97,7 @@ func (c rfc1423Algo) deriveKey(password, salt []byte) []byte {
 }
 
 // IncorrectPasswordError is returned when an incorrect password is detected.
-var IncorrectPasswordError = errors.New("x509: decryption password incorrect")
+var IncorrectPasswordError = pkerr.NewErrIncorrectPassword()
 
 // DecryptPEMBlock takes a PEM block encrypted according to RFC 1423 and the
 // password used to encrypt it and returns a slice of decrypted DER encoded
@@ -110,27 +111,27 @@ var IncorrectPasswordError = errors.New("x509: decryption password incorrect")
 // Deprecated: Legacy PEM encryption as specified in RFC 1423 is insecure by
 // design. Since it does not authenticate the ciphertext, it is vulnerable to
 // padding oracle attacks that can let an attacker recover the plaintext.
-func DecryptPEMBlock(b *pem.Block, password []byte) ([]byte, error) {
+func DecryptPEMBlock(b *pem.Block, password []byte) ([]byte, pkerr.Kerror) {
 	dek, ok := b.Headers["DEK-Info"]
 	if !ok {
-		return nil, errors.New("x509: no DEK-Info header in block")
+		return nil, pkerr.NewErrNoDeckInfoInBlock()
 	}
 
 	mode, hexIV, ok := strings.Cut(dek, ",")
 	if !ok {
-		return nil, errors.New("x509: malformed DEK-Info header")
+		return nil, pkerr.NewErrNoDeckInfoInBlock()
 	}
 
 	ciph := cipherByName(mode)
 	if ciph == nil {
-		return nil, errors.New("x509: unknown encryption mode")
+		return nil, pkerr.NewErrUnknownEncryptionMode()
 	}
 	iv, err := hex.DecodeString(hexIV)
 	if err != nil {
-		return nil, err
+		return nil, pkerr.NewErrNative(err)
 	}
 	if len(iv) != ciph.blockSize {
-		return nil, errors.New("x509: incorrect IV size")
+		return nil, pkerr.NewErrIncorrectIVSize()
 	}
 
 	// Based on the OpenSSL implementation. The salt is the first 8 bytes
@@ -138,11 +139,11 @@ func DecryptPEMBlock(b *pem.Block, password []byte) ([]byte, error) {
 	key := ciph.deriveKey(password, iv[:8])
 	block, err := ciph.cipherFunc(key)
 	if err != nil {
-		return nil, err
+		return nil, pkerr.NewErrNative(err)
 	}
 
 	if len(b.Bytes)%block.BlockSize() != 0 {
-		return nil, errors.New("x509: encrypted PEM data is not a multiple of the block size")
+		return nil, pkerr.NewErrEncryptedNotMatchingBlocSizing()
 	}
 
 	data := make([]byte, len(b.Bytes))
@@ -157,7 +158,7 @@ func DecryptPEMBlock(b *pem.Block, password []byte) ([]byte, error) {
 	// If we detect a bad padding, we assume it is an invalid password.
 	dlen := len(data)
 	if dlen == 0 || dlen%ciph.blockSize != 0 {
-		return nil, errors.New("x509: invalid padding")
+		return nil, pkerr.NewErrEncryptionPadding()
 	}
 	last := int(data[dlen-1])
 	if dlen < last {
@@ -181,21 +182,21 @@ func DecryptPEMBlock(b *pem.Block, password []byte) ([]byte, error) {
 // Deprecated: Legacy PEM encryption as specified in RFC 1423 is insecure by
 // design. Since it does not authenticate the ciphertext, it is vulnerable to
 // padding oracle attacks that can let an attacker recover the plaintext.
-func EncryptPEMBlock(rand io.Reader, blockType string, data, password []byte, alg PEMCipher) (*pem.Block, error) {
+func EncryptPEMBlock(rand io.Reader, blockType string, data, password []byte, alg PEMCipher) (*pem.Block, pkerr.Kerror) {
 	ciph := cipherByKey(alg)
 	if ciph == nil {
-		return nil, errors.New("x509: unknown encryption mode")
+		return nil, pkerr.NewErrUnknownEncryptionMode()
 	}
 	iv := make([]byte, ciph.blockSize)
 	if _, err := io.ReadFull(rand, iv); err != nil {
-		return nil, errors.New("x509: cannot generate IV: " + err.Error())
+		return nil, pkerr.NewErrIVGeneration(err.Error())
 	}
 	// The salt is the first 8 bytes of the initialization vector,
 	// matching the key derivation in DecryptPEMBlock.
 	key := ciph.deriveKey(password, iv[:8])
 	block, err := ciph.cipherFunc(key)
 	if err != nil {
-		return nil, err
+		return nil, pkerr.NewErrNative(err)
 	}
 	enc := cipher.NewCBCEncrypter(block, iv)
 	pad := ciph.blockSize - len(data)%ciph.blockSize

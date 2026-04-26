@@ -9,6 +9,8 @@ import (
 	"crypto/sha256"
 	"encoding/pem"
 	"sync"
+
+	"github.com/pduveau/gocert/pkerr"
 )
 
 type sum224 [sha256.Size224]byte
@@ -47,17 +49,17 @@ type lazyCert struct {
 	// constraint is a function to run against a chain when it is a candidate to
 	// be added to the chain. This allows adding arbitrary constraints that are
 	// not specified in the certificate itself.
-	constraint func([]*Certificate) error
+	constraint func([]*Certificate) pkerr.Kerror
 
 	// getCert returns the certificate.
 	//
 	// It is not meant to do network operations or anything else
 	// where a failure is likely; the func is meant to lazily
 	// parse/decompress data that is already known to be good. The
-	// error in the signature primarily is meant for use in the
+	// pkerr.Pkerror in the signature primarily is meant for use in the
 	// case where a cert file existed on local disk when the program
 	// started up is deleted later before it's read.
-	getCert func() (*Certificate, error)
+	getCert func() (*Certificate, pkerr.Kerror)
 }
 
 // NewCertPool returns a new, empty CertPool.
@@ -78,7 +80,7 @@ func (s *CertPool) len() int {
 }
 
 // cert returns cert index n in s.
-func (s *CertPool) cert(n int) (*Certificate, func([]*Certificate) error, error) {
+func (s *CertPool) cert(n int) (*Certificate, func([]*Certificate) pkerr.Kerror, pkerr.Kerror) {
 	cert, err := s.lazyCerts[n].getCert()
 	return cert, s.lazyCerts[n].constraint, err
 }
@@ -114,7 +116,7 @@ func (s *CertPool) Clone() *CertPool {
 // any other pool returned by SystemCertPool.
 //
 // New changes in the system cert pool might not be reflected in subsequent calls.
-func SystemCertPool() (*CertPool, error) {
+func SystemCertPool() (*CertPool, pkerr.Kerror) {
 	if sysRoots := systemRootsPool(); sysRoots != nil {
 		return sysRoots.Clone(), nil
 	}
@@ -124,7 +126,7 @@ func SystemCertPool() (*CertPool, error) {
 
 type potentialParent struct {
 	cert       *Certificate
-	constraint func([]*Certificate) error
+	constraint func([]*Certificate) pkerr.Kerror
 }
 
 // findPotentialParents returns the certificates in s which might have signed
@@ -181,7 +183,7 @@ func (s *CertPool) AddCert(cert *Certificate) {
 	if cert == nil {
 		panic("adding nil Certificate to CertPool")
 	}
-	s.addCertFunc(sha256.Sum224(cert.Raw), string(cert.RawSubject), func() (*Certificate, error) {
+	s.addCertFunc(sha256.Sum224(cert.Raw), string(cert.RawSubject), func() (*Certificate, pkerr.Kerror) {
 		return cert, nil
 	}, nil)
 }
@@ -191,7 +193,7 @@ func (s *CertPool) AddCert(cert *Certificate) {
 //
 // The rawSubject is Certificate.RawSubject and must be non-empty.
 // The getCert func may be called 0 or more times.
-func (s *CertPool) addCertFunc(rawSum224 sum224, rawSubject string, getCert func() (*Certificate, error), constraint func([]*Certificate) error) {
+func (s *CertPool) addCertFunc(rawSum224 sum224, rawSubject string, getCert func() (*Certificate, pkerr.Kerror), constraint func([]*Certificate) pkerr.Kerror) {
 	if getCert == nil {
 		panic("getCert can't be nil")
 	}
@@ -236,7 +238,7 @@ func (s *CertPool) AppendCertsFromPEM(pemCerts []byte) (ok bool) {
 			sync.Once
 			v *Certificate
 		}
-		s.addCertFunc(sha256.Sum224(cert.Raw), string(cert.RawSubject), func() (*Certificate, error) {
+		s.addCertFunc(sha256.Sum224(cert.Raw), string(cert.RawSubject), func() (*Certificate, pkerr.Kerror) {
 			lazyCert.Do(func() {
 				// This can't fail, as the same bytes already parsed above.
 				lazyCert.v, _ = ParseCertificate(certBytes)
@@ -269,13 +271,13 @@ func (s *CertPool) Equal(other *CertPool) bool {
 // AddCertWithConstraint adds a certificate to the pool with the additional
 // constraint. When Certificate.Verify builds a chain which is rooted by cert,
 // it will additionally pass the whole chain to constraint to determine its
-// validity. If constraint returns a non-nil error, the chain will be discarded.
+// validity. If constraint returns a non-nil pkerr.Pkerror, the chain will be discarded.
 // constraint may be called concurrently from multiple goroutines.
-func (s *CertPool) AddCertWithConstraint(cert *Certificate, constraint func([]*Certificate) error) {
+func (s *CertPool) AddCertWithConstraint(cert *Certificate, constraint func([]*Certificate) pkerr.Kerror) {
 	if cert == nil {
 		panic("adding nil Certificate to CertPool")
 	}
-	s.addCertFunc(sha256.Sum224(cert.Raw), string(cert.RawSubject), func() (*Certificate, error) {
+	s.addCertFunc(sha256.Sum224(cert.Raw), string(cert.RawSubject), func() (*Certificate, pkerr.Kerror) {
 		return cert, nil
 	}, constraint)
 }

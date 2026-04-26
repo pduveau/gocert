@@ -7,7 +7,6 @@ package x509
 import (
 	"bytes"
 	"crypto"
-	"errors"
 	"fmt"
 	"iter"
 	"maps"
@@ -17,114 +16,30 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/pduveau/gocert/pkerr"
+	"github.com/pduveau/gocert/pkix"
 )
 
-type InvalidReason int
-
-const (
-	// NotAuthorizedToSign results when a certificate is signed by another
-	// which isn't marked as a CA certificate.
-	NotAuthorizedToSign InvalidReason = iota
-	// Expired results when a certificate has expired, based on the time
-	// given in the VerifyOptions.
-	Expired
-	// CANotAuthorizedForThisName results when an intermediate or root
-	// certificate has a name constraint which doesn't permit a DNS or
-	// other name (including IP address) in the leaf certificate.
-	CANotAuthorizedForThisName
-	// TooManyIntermediates results when a path length constraint is
-	// violated.
-	TooManyIntermediates
-	// IncompatibleUsage results when the certificate's key usage indicates
-	// that it may only be used for a different purpose.
-	IncompatibleUsage
-	// NameMismatch results when the subject name of a parent certificate
-	// does not match the issuer name in the child.
-	NameMismatch
-	// NameConstraintsWithoutSANs is a legacy error and is no longer returned.
-	NameConstraintsWithoutSANs
-	// UnconstrainedName results when a CA certificate contains permitted
-	// name constraints, but leaf certificate contains a name of an
-	// unsupported or unconstrained type.
-	UnconstrainedName
-	// TooManyConstraints results when the number of comparison operations
-	// needed to check a certificate exceeds the limit set by
-	// VerifyOptions.MaxConstraintComparisions. This limit exists to
-	// prevent pathological certificates can consuming excessive amounts of
-	// CPU time to verify.
-	TooManyConstraints
-	// CANotAuthorizedForExtKeyUsage results when an intermediate or root
-	// certificate does not permit a requested extended key usage.
-	CANotAuthorizedForExtKeyUsage
-	// NoValidChains results when there are no valid chains to return.
-	NoValidChains
-)
-
-// CertificateInvalidError results when an odd error occurs. Users of this
-// library probably want to handle all these errors uniformly.
-type CertificateInvalidError struct {
-	Cert   *Certificate
-	Reason InvalidReason
-	Detail string
-}
-
-func (e CertificateInvalidError) Error() string {
-	switch e.Reason {
-	case NotAuthorizedToSign:
-		return "x509: certificate is not authorized to sign other certificates"
-	case Expired:
-		return "x509: certificate has expired or is not yet valid: " + e.Detail
-	case CANotAuthorizedForThisName:
-		return "x509: a root or intermediate certificate is not authorized to sign for this name: " + e.Detail
-	case CANotAuthorizedForExtKeyUsage:
-		return "x509: a root or intermediate certificate is not authorized for an extended key usage: " + e.Detail
-	case TooManyIntermediates:
-		return "x509: too many intermediates for path length constraint"
-	case IncompatibleUsage:
-		return "x509: certificate specifies an incompatible key usage"
-	case NameMismatch:
-		return "x509: issuer name does not match subject from issuing certificate"
-	case NameConstraintsWithoutSANs:
-		return "x509: issuer has name constraints but leaf doesn't have a SAN extension"
-	case UnconstrainedName:
-		return "x509: issuer has name constraints but leaf contains unknown or unconstrained name: " + e.Detail
-	case NoValidChains:
-		s := "x509: no valid chains built"
-		if e.Detail != "" {
-			s = fmt.Sprintf("%s: %s", s, e.Detail)
-		}
-		return s
-	}
-	return "x509: unknown error"
-}
-
-// HostnameError results when the set of authorized names doesn't match the
-// requested name.
-type HostnameError struct {
-	Certificate *Certificate
-	Host        string
-}
-
-func (h HostnameError) Error() string {
-	c := h.Certificate
+func HostnameError(host string, c *Certificate) pkerr.Kerror {
 	maxNamesIncluded := 100
 	var cn string
 	if len(c.Subject.CommonName) > 0 {
 		cn = c.Subject.CommonName[0]
 	}
 
-	if !c.hasSANExtension() && matchHostnames(cn, h.Host) {
-		return "x509: certificate relies on legacy Common Name field, use SANs instead"
+	if !c.hasSANExtension() && matchHostnames(cn, host) {
+		return pkerr.NewErrInvalidHostname(pkerr.NumErrHostnameLegacyCNField)
 	}
 
 	var valid strings.Builder
-	if ip := net.ParseIP(h.Host); ip != nil {
+	if ip := net.ParseIP(host); ip != nil {
 		// Trying to validate an IP
 		if len(c.San.IPAddresses) == 0 {
-			return "x509: cannot validate certificate for " + h.Host + " because it doesn't contain any IP SANs"
+			return pkerr.NewErrInvalidHostname(pkerr.NumErrHostnameDoesNotContainIPSAN, host)
 		}
 		if len(c.San.IPAddresses) >= maxNamesIncluded {
-			return fmt.Sprintf("x509: certificate is valid for %d IP SANs, but none matched %s", len(c.San.IPAddresses), h.Host)
+			return pkerr.NewErrInvalidHostname(pkerr.NumErrHostnameNoneIPSANMatched, len(c.San.IPAddresses), host)
 		}
 		for _, san := range c.San.IPAddresses {
 			if valid.Len() > 0 {
@@ -134,64 +49,33 @@ func (h HostnameError) Error() string {
 		}
 	} else {
 		if len(c.San.DNSNames) >= maxNamesIncluded {
-			return fmt.Sprintf("x509: certificate is valid for %d names, but none matched %s", len(c.San.DNSNames), h.Host)
+			return pkerr.NewErrInvalidHostname(pkerr.NumErrHostnameNoneDNSSANMatched, len(c.San.DNSNames), host)
 		}
 		valid.WriteString(strings.Join(c.San.DNSNames, ", "))
 	}
 
 	if valid.Len() == 0 {
-		return "x509: certificate is not valid for any names, but wanted to match " + h.Host
+		return pkerr.NewErrInvalidHostname(pkerr.NumErrHostnameCertificateNotValidForAnyNames, host)
 	}
-	return "x509: certificate is valid for " + valid.String() + ", not " + h.Host
+	return pkerr.NewErrInvalidHostname(pkerr.NumErrHostnameCertificateValidButNotForName, valid.String(), host)
 }
 
-// UnknownAuthorityError results when the certificate issuer is unknown
-type UnknownAuthorityError struct {
-	Cert *Certificate
-	// hintErr contains an error that may be helpful in determining why an
-	// authority wasn't found.
-	hintErr error
-	// hintCert contains a possible authority certificate that was rejected
-	// because of the error in hintErr.
-	hintCert *Certificate
-}
-
-func (e UnknownAuthorityError) Error() string {
-	s := "x509: certificate signed by unknown authority"
-	if e.hintErr != nil {
+func UnknownAuthorityError(hintErr error, hintCert *Certificate) pkerr.Kerror {
+	if hintErr != nil {
 		var certName string
-		if len(e.hintCert.Subject.CommonName) == 0 {
-			if len(e.hintCert.Subject.Organization) > 0 {
-				certName = e.hintCert.Subject.Organization[0]
+		if len(hintCert.Subject.CommonName) == 0 {
+			if len(hintCert.Subject.Organization) > 0 {
+				certName = hintCert.Subject.Organization[0]
 			} else {
-				certName = "serial:" + e.hintCert.SerialNumber.String()
+				certName = "serial:" + hintCert.SerialNumber.String()
 			}
 		} else {
-			certName = e.hintCert.Subject.CommonName[0]
+			certName = hintCert.Subject.CommonName[0]
 		}
-		s += fmt.Sprintf(" (possibly because of %q while trying to verify candidate authority certificate %q)", e.hintErr, certName)
+		return pkerr.NewErrUnknownAuthority(hintErr, certName)
 	}
-	return s
+	return pkerr.NewErrUnknownAuthority()
 }
-
-// SystemRootsError results when we fail to load the system root certificates.
-type SystemRootsError struct {
-	Err error
-}
-
-func (se SystemRootsError) Error() string {
-	msg := "x509: failed to load system roots and no roots provided"
-	if se.Err != nil {
-		return msg + "; " + se.Err.Error()
-	}
-	return msg
-}
-
-func (se SystemRootsError) Unwrap() error { return se.Err }
-
-// errNotParsed is returned when a certificate without ASN.1 contents is
-// verified. Platform-specific verification needs the ASN.1 contents.
-var errNotParsed = errors.New("x509: missing ASN.1 contents; use ParseCertificate")
 
 // VerifyOptions contains parameters for Certificate.Verify.
 type VerifyOptions struct {
@@ -445,15 +329,15 @@ func domainToReverseLabels(domain string) (reverseLabels []string, ok bool) {
 
 // isValid performs validity checks on c given that it is a candidate to append
 // to the chain in currentChain.
-func (c *Certificate) isValid(certType int, currentChain []*Certificate, opts *VerifyOptions) error {
+func (c *Certificate) isValid(certType int, currentChain []*Certificate, opts *VerifyOptions) pkerr.Kerror {
 	if len(c.UnhandledCriticalExtensions) > 0 {
-		return UnhandledCriticalExtension{}
+		return pkerr.NewErrUnhandledCriticalExtension()
 	}
 
 	if len(currentChain) > 0 {
 		child := currentChain[len(currentChain)-1]
 		if !bytes.Equal(child.RawIssuer, c.RawSubject) {
-			return CertificateInvalidError{c, NameMismatch, ""}
+			return pkerr.NewErrCertificateInvalid(pkerr.NunErrNameMismatch)
 		}
 	}
 
@@ -462,22 +346,14 @@ func (c *Certificate) isValid(certType int, currentChain []*Certificate, opts *V
 		now = time.Now()
 	}
 	if now.Before(c.NotBefore) {
-		return CertificateInvalidError{
-			Cert:   c,
-			Reason: Expired,
-			Detail: fmt.Sprintf("current time %s is before %s", now.Format(time.RFC3339), c.NotBefore.Format(time.RFC3339)),
-		}
+		return pkerr.NewErrCertificateInvalid(pkerr.NunErrExpired, now.Format(time.RFC3339), "is before", c.NotBefore.Format(time.RFC3339))
 	} else if now.After(c.NotAfter) {
-		return CertificateInvalidError{
-			Cert:   c,
-			Reason: Expired,
-			Detail: fmt.Sprintf("current time %s is after %s", now.Format(time.RFC3339), c.NotAfter.Format(time.RFC3339)),
-		}
+		return pkerr.NewErrCertificateInvalid(pkerr.NunErrExpired, now.Format(time.RFC3339), "is after", c.NotAfter.Format(time.RFC3339))
 	}
 
 	if certType == intermediateCertificate || certType == rootCertificate {
 		if len(currentChain) == 0 {
-			return errors.New("x509: internal error: empty chain when appending CA cert")
+			return pkerr.NewErrEmptyChainWhileAppending()
 		}
 	}
 
@@ -499,13 +375,13 @@ func (c *Certificate) isValid(certType int, currentChain []*Certificate, opts *V
 	// encryption key could only be used for Diffie-Hellman key agreement.
 
 	if certType == intermediateCertificate && (!c.BasicConstraintsValid || !c.IsCA) {
-		return CertificateInvalidError{c, NotAuthorizedToSign, ""}
+		return pkerr.NewErrCertificateInvalid(pkerr.NumErrNotAuthorizedToSign)
 	}
 
 	if c.BasicConstraintsValid && c.MaxPathLen >= 0 {
 		numIntermediates := len(currentChain) - 1
 		if numIntermediates > c.MaxPathLen {
-			return CertificateInvalidError{c, TooManyIntermediates, ""}
+			return pkerr.NewErrCertificateInvalid(pkerr.NunErrTooManyIntermediates)
 		}
 	}
 
@@ -544,19 +420,19 @@ func (c *Certificate) isValid(certType int, currentChain []*Certificate, opts *V
 // Certificates other than c in the returned chains should not be modified.
 //
 // WARNING: this function doesn't do any revocation checking.
-func (c *Certificate) Verify(opts VerifyOptions) ([][]*Certificate, error) {
+func (c *Certificate) Verify(opts VerifyOptions) ([][]*Certificate, pkerr.Kerror) {
 	// Platform-specific verification needs the ASN.1 contents so
 	// this makes the behavior consistent across platforms.
 	if len(c.Raw) == 0 {
-		return nil, errNotParsed
+		return nil, pkerr.NewErrCertficateNotParsed()
 	}
 	for i := 0; i < opts.Intermediates.len(); i++ {
 		c, _, err := opts.Intermediates.cert(i)
 		if err != nil {
-			return nil, fmt.Errorf("crypto/x509: error fetching intermediate: %w", err)
+			return nil, pkerr.NewErrFetchingIntermediaries(err)
 		}
 		if len(c.Raw) == 0 {
-			return nil, errNotParsed
+			return nil, pkerr.NewErrCertficateNotParsed()
 		}
 	}
 
@@ -582,7 +458,7 @@ func (c *Certificate) Verify(opts VerifyOptions) ([][]*Certificate, error) {
 	if opts.Roots == nil {
 		opts.Roots = systemRootsPool()
 		if opts.Roots == nil {
-			return nil, SystemRootsError{systemRootsErr}
+			return nil, pkerr.NewErrSystemRoots(systemRootsErr)
 		}
 	}
 
@@ -623,7 +499,7 @@ func (c *Certificate) Verify(opts VerifyOptions) ([][]*Certificate, error) {
 
 	var invalidPoliciesChains int
 	var incompatibleKeyUsageChains int
-	var constraintsHintErr error
+	var constraintsHintErr pkerr.Kerror
 	candidateChains = slices.DeleteFunc(candidateChains, func(chain []*Certificate) bool {
 		if !policiesValid(chain, opts) {
 			invalidPoliciesChains++
@@ -637,7 +513,7 @@ func (c *Certificate) Verify(opts VerifyOptions) ([][]*Certificate, error) {
 		}
 		if err := checkChainConstraints(chain); err != nil {
 			if constraintsHintErr == nil {
-				constraintsHintErr = CertificateInvalidError{c, CANotAuthorizedForThisName, err.Error()}
+				constraintsHintErr = pkerr.NewErrCertificateInvalid(pkerr.NunErrCANotAuthorizedForThisName, err.Error())
 			}
 			return true
 		}
@@ -651,15 +527,14 @@ func (c *Certificate) Verify(opts VerifyOptions) ([][]*Certificate, error) {
 		var details []string
 		if incompatibleKeyUsageChains > 0 {
 			if invalidPoliciesChains == 0 {
-				return nil, CertificateInvalidError{c, IncompatibleUsage, ""}
+				return nil, pkerr.NewErrCertificateInvalid(pkerr.NunErrIncompatibleUsage)
 			}
 			details = append(details, fmt.Sprintf("%d candidate chains with incompatible key usage", incompatibleKeyUsageChains))
 		}
 		if invalidPoliciesChains > 0 {
 			details = append(details, fmt.Sprintf("%d candidate chains with invalid policies", invalidPoliciesChains))
 		}
-		err = CertificateInvalidError{c, NoValidChains, strings.Join(details, ", ")}
-		return nil, err
+		return nil, pkerr.NewErrCertificateInvalid(pkerr.NunErrNoValidChains, strings.Join(details, ", "))
 	}
 
 	return candidateChains, nil
@@ -682,9 +557,9 @@ func alreadyInChain(candidate *Certificate, chain []*Certificate) bool {
 		Equal(crypto.PublicKey) bool
 	}
 
-	var candidateSAN *Extension
+	var candidateSAN *pkix.Extension
 	for _, ext := range candidate.Extensions {
-		if ext.Id.Equal(oidExtensionSubjectAltName) {
+		if ext.Id.Equal(OidExtensionSubjectAltName) {
 			candidateSAN = &ext
 			break
 		}
@@ -700,9 +575,9 @@ func alreadyInChain(candidate *Certificate, chain []*Certificate) bool {
 		if !bytes.Equal(candidate.RawSubjectPublicKeyInfo, cert.RawSubjectPublicKeyInfo) {
 			continue
 		}
-		var certSAN *Extension
+		var certSAN *pkix.Extension
 		for _, ext := range cert.Extensions {
-			if ext.Id.Equal(oidExtensionSubjectAltName) {
+			if ext.Id.Equal(OidExtensionSubjectAltName) {
 				certSAN = &ext
 				break
 			}
@@ -725,7 +600,7 @@ func alreadyInChain(candidate *Certificate, chain []*Certificate) bool {
 // for failed checks due to different intermediates having the same Subject.
 const maxChainSignatureChecks = 100
 
-func (c *Certificate) buildChains(currentChain []*Certificate, sigChecks *int, opts *VerifyOptions) (chains [][]*Certificate, err error) {
+func (c *Certificate) buildChains(currentChain []*Certificate, sigChecks *int, opts *VerifyOptions) (chains [][]*Certificate, err pkerr.Kerror) {
 	var (
 		hintErr  error
 		hintCert *Certificate
@@ -741,7 +616,7 @@ func (c *Certificate) buildChains(currentChain []*Certificate, sigChecks *int, o
 		}
 		*sigChecks++
 		if *sigChecks > maxChainSignatureChecks {
-			err = errors.New("x509: signature check attempts limit reached while verifying certificate chain")
+			err = pkerr.NewErrSignatureCheckReachDeepLimit()
 			return
 		}
 
@@ -793,7 +668,7 @@ func (c *Certificate) buildChains(currentChain []*Certificate, sigChecks *int, o
 		err = nil
 	}
 	if len(chains) == 0 && err == nil {
-		err = UnknownAuthorityError{c, hintErr, hintCert}
+		err = UnknownAuthorityError(hintErr, hintCert)
 	}
 
 	return
@@ -929,7 +804,7 @@ func toLowerCaseASCII(in string) string {
 // fields can have a wildcard as the complete left-most label (e.g. *.example.com).
 //
 // Note that the legacy Common Name field is ignored.
-func (c *Certificate) VerifyHostname(h string) error {
+func (c *Certificate) VerifyHostname(h string) pkerr.Kerror {
 	// IP addresses may be written in [ ].
 	candidateIP := h
 	if len(h) >= 3 && h[0] == '[' && h[len(h)-1] == ']' {
@@ -945,7 +820,7 @@ func (c *Certificate) VerifyHostname(h string) error {
 				}
 			}
 		}
-		return HostnameError{c, candidateIP}
+		return HostnameError(candidateIP, c)
 	}
 
 	candidateName := toLowerCaseASCII(h) // Save allocations inside the loop.
@@ -970,7 +845,7 @@ func (c *Certificate) VerifyHostname(h string) error {
 		}
 	}
 
-	return HostnameError{c, h}
+	return HostnameError(h, c)
 }
 
 func checkChainForKeyUsage(chain []*Certificate, keyUsages []ExtKeyUsage) bool {

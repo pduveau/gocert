@@ -2,15 +2,16 @@ package pkcs7
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
+
+	"github.com/pduveau/gocert/pkerr"
 )
 
 var encodeIndent = 0
 
 type asn1Object interface {
-	EncodeTo(writer *bytes.Buffer) error
+	EncodeTo(writer *bytes.Buffer) pkerr.Kerror
 	TagBytes() []byte
 }
 
@@ -23,19 +24,22 @@ func (s asn1Structured) TagBytes() []byte {
 	return s.tagBytes
 }
 
-func (s asn1Structured) EncodeTo(out *bytes.Buffer) error {
+func (s asn1Structured) EncodeTo(out *bytes.Buffer) pkerr.Kerror {
 	//fmt.Printf("%s--> tag: % X\n", strings.Repeat("| ", encodeIndent), s.tagBytes)
 	encodeIndent++
 	inner := new(bytes.Buffer)
 	for _, obj := range s.content {
 		err := obj.EncodeTo(inner)
 		if err != nil {
-			return err
+			return pkerr.NewErrNative(err)
 		}
 	}
 	encodeIndent--
 	out.Write(s.tagBytes)
-	encodeLength(out, inner.Len())
+	err := encodeLength(out, inner.Len())
+	if err != nil {
+		return pkerr.NewErrNative(err)
+	}
 	out.Write(inner.Bytes())
 	return nil
 }
@@ -50,13 +54,13 @@ func (s asn1Primitive) TagBytes() []byte {
 	return s.tagBytes
 }
 
-func (p asn1Primitive) EncodeTo(out *bytes.Buffer) error {
+func (p asn1Primitive) EncodeTo(out *bytes.Buffer) pkerr.Kerror {
 	_, err := out.Write(p.tagBytes)
 	if err != nil {
-		return err
+		return pkerr.NewErrNative(err)
 	}
 	if err = encodeLength(out, p.length); err != nil {
-		return err
+		return pkerr.NewErrNative(err)
 	}
 	//fmt.Printf("%s--> tag: % X length: %d\n", strings.Repeat("| ", encodeIndent), p.tagBytes, p.length)
 	//fmt.Printf("%s--> content length: %d\n", strings.Repeat("| ", encodeIndent), len(p.content))
@@ -65,15 +69,15 @@ func (p asn1Primitive) EncodeTo(out *bytes.Buffer) error {
 	return nil
 }
 
-func ber2der(data []byte) ([]byte, error) {
+func ber2der(data []byte) ([]byte, pkerr.Kerror) {
 	out := new(bytes.Buffer)
 
-	obj, err := readObject(bytes.NewReader(data))
-	if err != nil && err != io.EOF {
-		return nil, err
+	obj, errNative := readObject(bytes.NewReader(data))
+	if errNative != nil && errNative != io.EOF {
+		return nil, pkerr.NewErrNative(errNative)
 	}
 	if obj == nil {
-		return nil, fmt.Errorf("error to parse BER")
+		return nil, pkerr.NewErrParsingBER()
 	}
 	obj.EncodeTo(out)
 
@@ -81,13 +85,13 @@ func ber2der(data []byte) ([]byte, error) {
 }
 
 // encodes lengths that are longer than 127 into string of bytes
-func marshalLongLength(out *bytes.Buffer, i int) (err error) {
+func marshalLongLength(out *bytes.Buffer, i int) (err pkerr.Kerror) {
 	n := lengthLength(i)
 
 	for ; n > 0; n-- {
-		err = out.WriteByte(byte(i >> uint((n-1)*8)))
-		if err != nil {
-			return
+		nerr := out.WriteByte(byte(i >> uint((n-1)*8)))
+		if nerr != nil {
+			return pkerr.NewErrNative(nerr)
 		}
 	}
 
@@ -155,7 +159,7 @@ func readObject(r *bytes.Reader) (obj asn1Object, err error) {
 		numberOfBytes := length
 		length = 0
 		if numberOfBytes > 4 { // int is only guaranteed to be 32bit
-			return nil, errors.New("ber2der: BER tag length too long")
+			return nil, fmt.Errorf("ber2der: BER tag length too long")
 		}
 		for i := 0; i < numberOfBytes; i++ {
 			var sl byte
@@ -164,10 +168,10 @@ func readObject(r *bytes.Reader) (obj asn1Object, err error) {
 			}
 			if i == 0 {
 				if numberOfBytes == 4 && (int)(sl) > 0x7F {
-					return nil, errors.New("ber2der: BER tag length is negative")
+					return nil, fmt.Errorf("ber2der: BER tag length is negative")
 				}
 				if 0x0 == (int)(sl) {
-					return nil, errors.New("ber2der: BER tag length has leading zero")
+					return nil, fmt.Errorf("ber2der: BER tag length has leading zero")
 				}
 			}
 			length = length*256 + (int)(sl)

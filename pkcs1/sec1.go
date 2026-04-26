@@ -9,7 +9,7 @@ import (
 	"errors"
 
 	"github.com/pduveau/gocert/internal/keys"
-	"github.com/pduveau/gocert/oids"
+	"github.com/pduveau/gocert/pkix"
 )
 
 // ParseECPrivateKey parses an EC private key in SEC 1, ASN.1 DER form.
@@ -25,7 +25,7 @@ func ParseECPrivateKey(der []byte) (*ecdsa.PrivateKey, error) {
 // For a more flexible key format which is not EC specific, use
 // [MarshalPKCS8PrivateKey].
 func MarshalECPrivateKey(key *ecdsa.PrivateKey) ([]byte, error) {
-	oid, ok := oids.OidFromNamedCurve(key.Curve)
+	oid, ok := pkix.OidFromNamedCurve(key.Curve)
 	if !ok {
 		return nil, errors.New("x509: unknown elliptic curve")
 	}

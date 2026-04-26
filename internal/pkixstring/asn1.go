@@ -5,12 +5,12 @@
 package pkixstring
 
 import (
-	"fmt"
 	"math/big"
 	"reflect"
 	"time"
 
 	"github.com/pduveau/gocert/asn1"
+	"github.com/pduveau/gocert/pkerr"
 )
 
 // This file contains ASN.1-related methods for String and Builder.
@@ -140,7 +140,7 @@ const generalizedTimeFormatStr = "20060102150405Z0700"
 // AddASN1GeneralizedTime appends a DER-encoded ASN.1 GENERALIZEDTIME.
 func (b *Builder) AddASN1GeneralizedTime(t time.Time) {
 	if t.Year() < 0 || t.Year() > 9999 {
-		b.err = fmt.Errorf("cryptobyte: cannot represent %v as a GeneralizedTime", t)
+		b.err = pkerr.NewErrGeneralizedTime(t)
 		return
 	}
 	b.AddASN1(GeneralizedTime, func(c *Builder) {
@@ -154,7 +154,7 @@ func (b *Builder) AddASN1UTCTime(t time.Time) {
 		// As utilized by the X.509 profile, UTCTime can only
 		// represent the years 1950 through 2049.
 		if t.Year() < 1950 || t.Year() >= 2050 {
-			b.err = fmt.Errorf("cryptobyte: cannot represent %v as a UTCTime", t)
+			b.err = pkerr.NewErrUTCTime(t)
 			return
 		}
 		c.AddBytes([]byte(t.Format(defaultUTCTimeFormatStr)))
@@ -212,7 +212,7 @@ func isValidOID(oid asn1.ObjectIdentifier) bool {
 func (b *Builder) AddASN1ObjectIdentifier(oid asn1.ObjectIdentifier) {
 	b.AddASN1(OBJECT_IDENTIFIER, func(b *Builder) {
 		if !isValidOID(oid) {
-			b.err = fmt.Errorf("cryptobyte: invalid OID: %v", oid)
+			b.err = pkerr.NewErrOIDInvalid(oid)
 			return
 		}
 
@@ -265,7 +265,7 @@ func (b *Builder) AddASN1(tag Tag, f BuilderContinuation) {
 	// Identifiers with the low five bits set indicate high-tag-number format
 	// (two or more octets), which we don't support.
 	if tag&0x1f == 0x1f {
-		b.err = fmt.Errorf("cryptobyte: high-tag number identifier octets not supported: 0x%x", tag)
+		b.err = pkerr.NewErrHighTagValue(tag)
 		return
 	}
 	b.AddUint8(uint8(tag))

@@ -4,7 +4,10 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/pduveau/gocert/pkerr"
 )
 
 func loadTestData(t *testing.T, filename string) []byte {
@@ -116,8 +119,8 @@ func TestDecodePKCS12DataBadIterationCount(t *testing.T) {
 		t.Fatal("Expected getSafeContents to fail with bad iteration count, but it succeeded")
 	}
 
-	if err != ErrIncorrectPassword {
-		t.Fatalf("Got error %v but expected %v", err, ErrIncorrectPassword)
+	if _, ok := err.(*pkerr.ErrIncorrectPassword); !ok {
+		t.Fatalf("Got error %v but expected %v", err, pkerr.NewErrIncorrectPassword())
 	}
 
 	t.Logf("Successfully detected bad iteration count: %v", err)
@@ -139,8 +142,8 @@ func TestDecodePKCS12DataIncorrectSalt(t *testing.T) {
 		t.Fatal("Expected getSafeContents to fail with incorrect salt, but it succeeded")
 	}
 
-	if err != ErrIncorrectPassword {
-		t.Fatalf("Got error %v but expected %v", err, ErrIncorrectPassword)
+	if _, ok := err.(*pkerr.ErrIncorrectPassword); !ok {
+		t.Fatalf("Got error %v but expected %v", err, pkerr.NewErrIncorrectPassword())
 	}
 
 	t.Logf("Successfully detected incorrect salt: %v", err)
@@ -162,7 +165,7 @@ func TestDecodePKCS12DataMissingKeyLength(t *testing.T) {
 		t.Fatal("Expected getSafeContents to fail with missing key length, but it succeeded")
 	}
 
-	if expected := "pkbdf2: keyLength must be larger than 0"; err.Error() != expected {
+	if expected := "keyLength must be larger than 0"; !strings.Contains(err.Error(), expected) {
 		t.Fatalf("Got error %v but expected %v", err.Error(), expected)
 	}
 

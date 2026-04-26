@@ -7,9 +7,9 @@ package pkcs12
 
 import (
 	"crypto/sha1"
-	"fmt"
 
 	"github.com/pduveau/gocert/asn1"
+	"github.com/pduveau/gocert/pkerr"
 	"github.com/pduveau/gocert/pkix"
 )
 
@@ -19,12 +19,6 @@ var (
 	oidKeyBag                  = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 12, 10, 1, 1})
 	oidPKCS8ShroundedKeyBag    = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 12, 10, 1, 2})
 	oidCertBag                 = asn1.ObjectIdentifier([]int{1, 2, 840, 113549, 1, 12, 10, 1, 3})
-)
-
-// PEM block types
-const (
-	certificateType = "CERTIFICATE"
-	privateKeyType  = "PRIVATE KEY"
 )
 
 type safeBag struct {
@@ -45,7 +39,7 @@ func (bag *safeBag) hasAttribute(id asn1.ObjectIdentifier) bool {
 const LOCALKEYID = 0x01
 const JAVATRUSTSTORE = 0x02
 
-func (bag *safeBag) makeCertBag(certBytes []byte, options int, friendlyName string) (keyId *pkcs12Attribute, err error) {
+func (bag *safeBag) makeCertBag(certBytes []byte, options int, friendlyName string) (keyId *pkcs12Attribute, err pkerr.Kerror) {
 	type DataAttr struct {
 		id  asn1.ObjectIdentifier
 		val []byte
@@ -114,7 +108,15 @@ func (bag *safeBag) makeCertBag(certBytes []byte, options int, friendlyName stri
 }
 
 /*
-	func (bag *safeBag) convertBagPem(password []byte) (*pem.Block, error) {
+// PEM block types
+const (
+
+	certificateType = "CERTIFICATE"
+	privateKeyType  = "PRIVATE KEY"
+
+)
+
+	func (bag *safeBag) convertBagPem(password []byte) (*pem.Block, pkerr.Pkerror) {
 		block := &pem.Block{
 			Headers: make(map[string]string),
 		}
@@ -152,10 +154,10 @@ func (bag *safeBag) makeCertBag(certBytes []byte, options int, friendlyName stri
 					return nil, err
 				}
 			default:
-				return nil, fmt.Errorf("pkcs12: found unknown private key type in PKCS#8 wrapping")
+				return nil, pkerr.New("pkcs12: found unknown private key type in PKCS#8 wrapping")
 			}
 		default:
-			return nil, fmt.Errorf("pkcs12: don't know how to convert a safe bag of type %s", bag.Id.String())
+			return nil, pkerr.New("pkcs12: don't know how to convert a safe bag of type %s", bag.Id.String())
 		}
 		return block, nil
 	}
@@ -179,23 +181,23 @@ type certBag struct {
 	Data []byte `asn1:"tag:0,explicit"`
 }
 
-func decodeCertBag(asn1Data []byte) (x509Certificates []byte, err error) {
+func decodeCertBag(asn1Data []byte) (x509Certificates []byte, err pkerr.Kerror) {
 	bag := &certBag{}
-	if err := unmarshal(asn1Data, bag); err != nil {
-		return nil, fmt.Errorf("pkcs12: error decoding cert bag: %v", err)
+	if err := unmarshal(asn1Data, bag, "safebag"); err != nil {
+		return nil, pkerr.NewErrDecodingCertBag(err)
 	}
 	if !bag.Id.Equal(oidCertTypeX509Certificate) {
-		return nil, fmt.Errorf("only X509 certificates are supported in cert bags")
+		return nil, pkerr.NewErrOnlyCertificateInCertBag()
 	}
 	return bag.Data, nil
 }
 
-func encodeCertBag(x509Certificates []byte) (asn1Data []byte, err error) {
+func encodeCertBag(x509Certificates []byte) (asn1Data []byte, err pkerr.Kerror) {
 	var bag certBag
 	bag.Id = oidCertTypeX509Certificate
 	bag.Data = x509Certificates
 	if asn1Data, err = asn1.Marshal(bag); err != nil {
-		return nil, fmt.Errorf("pkcs12: error encoding cert bag: %v", err)
+		return nil, pkerr.NewErrEncodingCertBag(err)
 	}
 	return asn1Data, nil
 }
