@@ -2,7 +2,6 @@ package pkcs7
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 
 	"github.com/pduveau/gocert/pkerr"
@@ -31,14 +30,14 @@ func (s asn1Structured) EncodeTo(out *bytes.Buffer) pkerr.Kerror {
 	for _, obj := range s.content {
 		err := obj.EncodeTo(inner)
 		if err != nil {
-			return pkerr.NewErrNative(err)
+			return err
 		}
 	}
 	encodeIndent--
 	out.Write(s.tagBytes)
 	err := encodeLength(out, inner.Len())
 	if err != nil {
-		return pkerr.NewErrNative(err)
+		return err
 	}
 	out.Write(inner.Bytes())
 	return nil
@@ -55,12 +54,12 @@ func (s asn1Primitive) TagBytes() []byte {
 }
 
 func (p asn1Primitive) EncodeTo(out *bytes.Buffer) pkerr.Kerror {
-	_, err := out.Write(p.tagBytes)
-	if err != nil {
-		return pkerr.NewErrNative(err)
+	_, nativeError := out.Write(p.tagBytes)
+	if nativeError != nil {
+		return pkerr.NewErrNative(nativeError)
 	}
-	if err = encodeLength(out, p.length); err != nil {
-		return pkerr.NewErrNative(err)
+	if err := encodeLength(out, p.length); err != nil {
+		return err
 	}
 	//fmt.Printf("%s--> tag: % X length: %d\n", strings.Repeat("| ", encodeIndent), p.tagBytes, p.length)
 	//fmt.Printf("%s--> content length: %d\n", strings.Repeat("| ", encodeIndent), len(p.content))
@@ -72,9 +71,9 @@ func (p asn1Primitive) EncodeTo(out *bytes.Buffer) pkerr.Kerror {
 func ber2der(data []byte) ([]byte, pkerr.Kerror) {
 	out := new(bytes.Buffer)
 
-	obj, errNative := readObject(bytes.NewReader(data))
-	if errNative != nil && errNative != io.EOF {
-		return nil, pkerr.NewErrNative(errNative)
+	obj, nativeError := readObject(bytes.NewReader(data))
+	if nativeError != nil && nativeError != io.EOF {
+		return nil, pkerr.NewErrNative(nativeError)
 	}
 	if obj == nil {
 		return nil, pkerr.NewErrParsingBER()
@@ -89,9 +88,9 @@ func marshalLongLength(out *bytes.Buffer, i int) (err pkerr.Kerror) {
 	n := lengthLength(i)
 
 	for ; n > 0; n-- {
-		nerr := out.WriteByte(byte(i >> uint((n-1)*8)))
-		if nerr != nil {
-			return pkerr.NewErrNative(nerr)
+		nativeError := out.WriteByte(byte(i >> uint((n-1)*8)))
+		if nativeError != nil {
+			return pkerr.NewErrNative(nativeError)
 		}
 	}
 
@@ -122,10 +121,10 @@ func lengthLength(i int) (numBytes int) {
 //	120    | 0x78   | -
 //	200    | 0x81   | 0xC8
 //	500    | 0x82   | 0x01 0xF4
-func encodeLength(out *bytes.Buffer, length int) (err error) {
+func encodeLength(out *bytes.Buffer, length int) (err pkerr.Kerror) {
 	if length >= 128 {
 		l := lengthLength(length)
-		err = out.WriteByte(0x80 | byte(l))
+		err = pkerr.NewErrNative(out.WriteByte(0x80 | byte(l)))
 		if err != nil {
 			return
 		}
@@ -134,7 +133,7 @@ func encodeLength(out *bytes.Buffer, length int) (err error) {
 			return
 		}
 	} else {
-		err = out.WriteByte(byte(length))
+		err = pkerr.NewErrNative(out.WriteByte(byte(length)))
 		if err != nil {
 			return
 		}
@@ -142,36 +141,40 @@ func encodeLength(out *bytes.Buffer, length int) (err error) {
 	return
 }
 
-func readObject(r *bytes.Reader) (obj asn1Object, err error) {
+func readObject(r *bytes.Reader) (obj asn1Object, err pkerr.Kerror) {
+	var nativeError error
 	var tagB byte
-	if tagB, err = r.ReadByte(); err != nil {
+	if tagB, nativeError = r.ReadByte(); nativeError != nil {
+		err = pkerr.NewErrNative(nativeError)
 		return
 	}
 
 	primitive := tagB&0x20 == 0
 
 	var l byte
-	if l, err = r.ReadByte(); err != nil {
-		return nil, fmt.Errorf("end of ber data reached")
+	if l, nativeError = r.ReadByte(); nativeError != nil {
+		err = pkerr.NewErrNative(nativeError)
+		return
 	}
 	length := (int)(l & 0x7F)
 	if l > 0x80 {
 		numberOfBytes := length
 		length = 0
 		if numberOfBytes > 4 { // int is only guaranteed to be 32bit
-			return nil, fmt.Errorf("ber2der: BER tag length too long")
+			return nil, pkerr.NewErrBERTagTooLong()
 		}
 		for i := 0; i < numberOfBytes; i++ {
 			var sl byte
-			if sl, err = r.ReadByte(); err != nil {
-				return nil, fmt.Errorf("length is more than available data")
+			if sl, nativeError = r.ReadByte(); nativeError != nil {
+				err = pkerr.NewErrNative(nativeError)
+				return
 			}
 			if i == 0 {
 				if numberOfBytes == 4 && (int)(sl) > 0x7F {
-					return nil, fmt.Errorf("ber2der: BER tag length is negative")
+					return nil, pkerr.NewErrBERTagNegativeLength()
 				}
 				if 0x0 == (int)(sl) {
-					return nil, fmt.Errorf("ber2der: BER tag length has leading zero")
+					return nil, pkerr.NewErrBERTagLeddingZero()
 				}
 			}
 			length = length*256 + (int)(sl)
@@ -185,10 +188,10 @@ func readObject(r *bytes.Reader) (obj asn1Object, err error) {
 			content:  make([]byte, length),
 		}
 		if length > 0 {
-			_, err = r.Read(p.content)
-		}
-		if err != nil {
-			return nil, fmt.Errorf("Invalid BER format")
+			_, nativeError = r.Read(p.content)
+			if nativeError != nil {
+				return nil, pkerr.NewErrInvalidBERFormat()
+			}
 		}
 		obj = p
 		return
@@ -197,12 +200,12 @@ func readObject(r *bytes.Reader) (obj asn1Object, err error) {
 		var sobj asn1Object
 		if length > 0 {
 			content := make([]byte, length)
-			n, err := r.Read(content)
-			if err != nil {
-				return nil, err
+			n, nativeError := r.Read(content)
+			if nativeError != nil {
+				return nil, pkerr.NewErrNative(nativeError)
 			}
 			if n != length {
-				return nil, fmt.Errorf("length is more than available data")
+				return nil, pkerr.NewErrBERLengthMoreThenData()
 			}
 			r = bytes.NewReader(content)
 		}

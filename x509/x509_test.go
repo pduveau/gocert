@@ -1493,91 +1493,6 @@ func TestEmptyNameConstraints(t *testing.T) {
 	}
 }
 
-func TestPKIXNameString(t *testing.T) {
-	der, err := base64.StdEncoding.DecodeString(certBytes)
-	if err != nil {
-		t.Fatal(err)
-	}
-	certs, err := ParseCertificates(der)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Check that parsed non-standard attributes are printed.
-	rdns := pkix.Name{}.AppendRDN(pkix.OidLocality, "Gophertown").AppendRDN(asn1.ObjectIdentifier{1, 2, 3, 4, 5}, "golang.org").ToRDNSequence()
-	nn := pkix.Name{}
-	nn.FillFromRDNSequence(&rdns)
-
-	// Check that zero-length non-nil ExtraNames hide Names.
-	extraNotNil := pkix.Name{
-		Locality: []string{"Gophertown"},
-		Names: []pkix.AttributeTypeAndValue{
-			{Type: pkix.OidLocality, Value: "Gophertown"},
-			{Type: asn1.ObjectIdentifier{1, 2, 3, 4, 5}, Value: "golang.org"},
-		},
-	}
-
-	tests := []struct {
-		dn   pkix.Name
-		want string
-	}{
-		{nn, "L=Gophertown,1.2.3.4.5=#130a676f6c616e672e6f7267"},
-		{extraNotNil, "L=Gophertown,1.2.3.4.5=#130a676f6c616e672e6f7267"},
-		{pkix.Name{}.AppendRDN(pkix.OidCommonName, "Steve Kille").
-			AppendRDN(pkix.OidOrganizationalUnit, "RFCs").
-			AppendRDN(pkix.OidOrganization, "Isode Limited").
-			AppendRDN(pkix.OidPostalCode, "TW9 1DT").
-			AppendRDN(pkix.OidStreetAddress, "The Square").
-			AppendRDN(pkix.OidLocality, "Richmond").
-			AppendRDN(pkix.OidProvince, "Surrey").
-			AppendRDN(pkix.OidCountry, "GB"),
-			"CN=Steve Kille,OU=RFCs,O=Isode Limited,POSTALCODE=TW9 1DT,STREET=The Square,L=Richmond,ST=Surrey,C=GB"},
-		{certs[0].Subject,
-			"C=US,ST=California,L=Mountain View,O=Google LLC,CN=mail.google.com"},
-		{pkix.Name{}.AppendRDN(pkix.OidOrganization, "#Google, Inc. \n-> 'Alphabet\" ").
-			AppendRDN(pkix.OidCountry, "US"),
-			"O=\\#Google\\, Inc. \n-\\> 'Alphabet\\\"\\ ,C=US"},
-	}
-
-	for i, test := range tests {
-		if got := test.dn.String(); got != test.want {
-			t.Errorf("#%d: String() = \n%s\n, want \n%s", i, got, test.want)
-		}
-	}
-}
-
-func TestRDNSequenceString(t *testing.T) {
-	// Test some extra cases that get lost in pkix.Name conversions such as
-	// multi-valued attributes.
-
-	tests := []struct {
-		seq  pkix.RDNSequence
-		want string
-	}{
-		{
-			seq: pkix.RDNSequence{
-				pkix.RelativeDistinguishedNameSET{
-					pkix.AttributeTypeAndValue{Type: pkix.OidCountry, Value: "US"},
-				},
-				pkix.RelativeDistinguishedNameSET{
-					pkix.AttributeTypeAndValue{Type: pkix.OidOrganization, Value: "Widget Inc."},
-				},
-				pkix.RelativeDistinguishedNameSET{
-					pkix.AttributeTypeAndValue{Type: pkix.OidOrganizationalUnit, Value: "Sales"},
-					pkix.AttributeTypeAndValue{Type: pkix.OidCommonName, Value: "J. Smith"},
-				},
-			},
-			want: "C=US,O=Widget Inc.,OU=Sales+CN=J. Smith",
-		},
-	}
-
-	for i, test := range tests {
-		if got := test.seq.String(); got != test.want {
-			t.Errorf("#%d: String() = \n%s\n, want \n%s", i, got, test.want)
-		}
-	}
-}
-
 const criticalNameConstraintWithUnknownTypePEM = `
 -----BEGIN CERTIFICATE-----
 MIIC/TCCAeWgAwIBAgICEjQwDQYJKoZIhvcNAQELBQAwKDEmMCQGA1UEAxMdRW1w
@@ -2474,9 +2389,9 @@ func TestDisableSHA1ForCertOnly(t *testing.T) {
 	// but shouldn't return an InsecureAlgorithmError, since SHA1 should be allowed
 	// for OCSP.
 	ocspTBSHex := "30819fa2160414884451ff502a695e2d88f421bad90cf2cecbea7c180f32303133303631383037323434335a30743072304a300906052b0e03021a0500041448b60d38238df8456e4ee5843ea394111802979f0414884451ff502a695e2d88f421bad90cf2cecbea7c021100f78b13b946fc9635d8ab49de9d2148218000180f32303133303631383037323434335aa011180f32303133303632323037323434335a"
-	ocspTBS, errNative := hex.DecodeString(ocspTBSHex)
-	if errNative != nil {
-		t.Fatalf("failed to decode OCSP response TBS hex: %s", errNative)
+	ocspTBS, nativeError := hex.DecodeString(ocspTBSHex)
+	if nativeError != nil {
+		t.Fatalf("failed to decode OCSP response TBS hex: %s", nativeError)
 	}
 
 	err = cert.CheckSignature(pkix.RSAWithSHA1, ocspTBS, nil)

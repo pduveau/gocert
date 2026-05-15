@@ -9,7 +9,7 @@ import (
 	"math/big"
 
 	"github.com/pduveau/gocert/asn1"
-	"github.com/pduveau/gocert/internal/keys"
+	"github.com/pduveau/gocert/keys"
 	"github.com/pduveau/gocert/pkerr"
 )
 
@@ -26,7 +26,7 @@ func ParsePKCS1PrivateKey(der []byte) (*rsa.PrivateKey, pkerr.Kerror) {
 		if _, err := asn1.Unmarshal(der, &keys.EcPrivateKey{}); err == nil {
 			return nil, pkerr.NewErrFailToParsePrivateKeyGotoECP()
 		}
-		if _, err := asn1.Unmarshal(der, &keys.Pkcs8{}); err == nil {
+		if _, err := asn1.Unmarshal(der, &keys.Pkcs8PrivateKey{}); err == nil {
 			return nil, pkerr.NewErrFailToParsePrivateKeyGotoPKCS8()
 		}
 		return nil, err

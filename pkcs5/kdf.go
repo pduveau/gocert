@@ -13,13 +13,14 @@ import (
 	"golang.org/x/crypto/scrypt"
 )
 
-func makeSalt(size int, current *[]byte) (salt []byte, err pkerr.Kerror) {
-	var errNative error
+func makeSalt(size int, current *[]byte) (salt []byte, perr pkerr.Kerror) {
+	var nativeError error
 	if size > 0 {
 		salt = make([]byte, size)
-		_, errNative = rand.Read(salt)
-		if errNative != nil {
-			return nil, pkerr.NewErrNative(errNative)
+		_, nativeError = rand.Read(salt)
+		perr = pkerr.NewErrNative(nativeError)
+		if perr != nil {
+			return
 		}
 		if current != nil {
 			*current = salt
@@ -27,7 +28,7 @@ func makeSalt(size int, current *[]byte) (salt []byte, err pkerr.Kerror) {
 		return
 	}
 	if current != nil && len(*current) == 0 {
-		err = pkerr.NewErrEmptySalt()
+		perr = pkerr.NewErrEmptySalt()
 	} else {
 		salt = *current
 	}
@@ -47,9 +48,9 @@ func (p *scryptBase) MakeSalt(saltSize int) pkerr.Kerror {
 }
 
 func (p *scryptBase) DeriveKey(password []byte, size int) (key []byte, err pkerr.Kerror) {
-	key, errNative := scrypt.Key([]byte(password), p.Salt, p.CostParameter, p.BlockSize,
+	key, nativeError := scrypt.Key([]byte(password), p.Salt, p.CostParameter, p.BlockSize,
 		p.ParallelizationParameter, size)
-	return key, pkerr.NewErrNative(errNative)
+	return key, pkerr.NewErrNative(nativeError)
 }
 
 func (p *scryptBase) Param() any {
@@ -110,26 +111,26 @@ func (p *pbkdf2Params) MakeSalt(saltSize int) pkerr.Kerror {
 }
 
 func (p *pbkdf2Params) DeriveKey(password []byte, size int) (key []byte, err pkerr.Kerror) {
-	var errNative error
+	var nativeError error
 	switch {
 	case len(p.PRF.Algorithm) == 0 || p.PRF.Algorithm.Equal(pkix.OidHMACWithSHA1.ToAsn1()):
-		key, errNative = pbkdf2.Key(sha1.New, string(password), p.Salt, p.IterationCount, size)
+		key, nativeError = pbkdf2.Key(sha1.New, string(password), p.Salt, p.IterationCount, size)
 	case p.PRF.Algorithm.Equal(pkix.OidHMACWithSHA224.ToAsn1()):
-		key, errNative = pbkdf2.Key(sha256.New224, string(password), p.Salt, p.IterationCount, size)
+		key, nativeError = pbkdf2.Key(sha256.New224, string(password), p.Salt, p.IterationCount, size)
 	case p.PRF.Algorithm.Equal(pkix.OidHMACWithSHA256.ToAsn1()):
-		key, errNative = pbkdf2.Key(sha256.New, string(password), p.Salt, p.IterationCount, size)
+		key, nativeError = pbkdf2.Key(sha256.New, string(password), p.Salt, p.IterationCount, size)
 	case p.PRF.Algorithm.Equal(pkix.OidHMACWithSHA384.ToAsn1()):
-		key, errNative = pbkdf2.Key(sha512.New384, string(password), p.Salt, p.IterationCount, size)
+		key, nativeError = pbkdf2.Key(sha512.New384, string(password), p.Salt, p.IterationCount, size)
 	case p.PRF.Algorithm.Equal(pkix.OidHMACWithSHA512.ToAsn1()):
-		key, errNative = pbkdf2.Key(sha512.New, string(password), p.Salt, p.IterationCount, size)
+		key, nativeError = pbkdf2.Key(sha512.New, string(password), p.Salt, p.IterationCount, size)
 	case p.PRF.Algorithm.Equal(pkix.OidHMACWithSHA512_224.ToAsn1()):
-		key, errNative = pbkdf2.Key(sha512.New512_224, string(password), p.Salt, p.IterationCount, size)
+		key, nativeError = pbkdf2.Key(sha512.New512_224, string(password), p.Salt, p.IterationCount, size)
 	case p.PRF.Algorithm.Equal(pkix.OidHMACWithSHA512_256.ToAsn1()):
-		key, errNative = pbkdf2.Key(sha512.New512_256, string(password), p.Salt, p.IterationCount, size)
+		key, nativeError = pbkdf2.Key(sha512.New512_256, string(password), p.Salt, p.IterationCount, size)
 	default:
 		return nil, pkerr.NewErrUnsupportedHash()
 	}
-	return key, pkerr.NewErrNative(errNative)
+	return key, pkerr.NewErrNative(nativeError)
 }
 
 func (p *pbkdf2Params) Param() any {

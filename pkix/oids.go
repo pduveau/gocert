@@ -292,7 +292,7 @@ func (digestAlg SignatureAlgorithm) DigestOID() (asn1.ObjectIdentifier, pkerr.Ke
 	case RSAWithSHA512, ECDSAWithSHA512:
 		return OIDDigestAlgorithmSHA512, nil
 	}
-	return nil, pkerr.NewErrOIDConvert()
+	return nil, pkerr.NewErrOIDConvertToAlgorithm()
 }
 
 func GetSignatureAlgorithmFromOID(oid asn1.ObjectIdentifier) SignatureAlgorithm {

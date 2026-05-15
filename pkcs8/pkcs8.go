@@ -5,13 +5,14 @@
 package pkcs8
 
 import (
+	"crypto"
 	"crypto/ecdh"
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/rsa"
 
 	"github.com/pduveau/gocert/asn1"
-	"github.com/pduveau/gocert/internal/keys"
+	"github.com/pduveau/gocert/keys"
 	"github.com/pduveau/gocert/pkcs1"
 	"github.com/pduveau/gocert/pkcs5"
 	"github.com/pduveau/gocert/pkerr"
@@ -21,6 +22,69 @@ import (
 type encryptedPrivateKeyInfo struct {
 	EncryptionAlgorithm pkix.AlgorithmIdentifier
 	EncryptedData       []byte
+}
+
+// parsePKCS8 parses an unencrypted private key in PKCS #8, ASN.1 DER form.
+func parsePKCS8(der []byte) (pkey crypto.PrivateKey, signer crypto.Signer, err pkerr.Kerror) {
+	var privKey keys.Pkcs8PrivateKey
+	if _, err := asn1.Unmarshal(der, &privKey); err != nil {
+		if _, err := asn1.Unmarshal(der, &keys.EcPrivateKey{}); err == nil {
+			return nil, nil, pkerr.NewErrFailToParsePrivateKeyGotoECP()
+		}
+		if _, err := asn1.Unmarshal(der, &keys.Pkcs1PrivateKey{}); err == nil {
+			return nil, nil, pkerr.NewErrFailToParsePrivateKeyGotoPKCS1()
+		}
+		return nil, nil, err
+	}
+
+	switch {
+	case privKey.Algo.Algorithm.Equal(pkix.OidPublicKeyRSA):
+		signer, err = pkcs1.ParsePKCS1PrivateKey(privKey.PrivateKey)
+		if err != nil {
+			return nil, nil, pkerr.NewErrParsingRSAPrivateKeyInPKCS8(err)
+		}
+		return signer, signer, nil
+
+	case privKey.Algo.Algorithm.Equal(pkix.OidPublicKeyECDSA):
+		bytes := privKey.Algo.Parameters.FullBytes
+		namedCurveOID := new(asn1.ObjectIdentifier)
+		if _, err := asn1.Unmarshal(bytes, namedCurveOID); err != nil {
+			namedCurveOID = nil
+		}
+		signer, err = keys.ParseECPrivateKey(namedCurveOID, privKey.PrivateKey)
+		if err != nil {
+			return nil, nil, err
+		}
+		return signer, signer, nil
+
+	case privKey.Algo.Algorithm.Equal(pkix.OidPublicKeyEd25519):
+		if l := len(privKey.Algo.Parameters.FullBytes); l != 0 {
+			return nil, nil, pkerr.NewErrInvalidEd25519Params()
+		}
+		var curvePrivateKey []byte
+		if _, err := asn1.Unmarshal(privKey.PrivateKey, &curvePrivateKey); err != nil {
+			return nil, nil, pkerr.NewErrInvalidEd25519PrivateKey(err)
+		}
+		if l := len(curvePrivateKey); l != ed25519.SeedSize {
+			return nil, nil, pkerr.NewErrInvalidEd25519PrivateKeylen(l)
+		}
+		signer = ed25519.NewKeyFromSeed(curvePrivateKey)
+		return signer, signer, nil
+
+	case privKey.Algo.Algorithm.Equal(pkix.OidPublicKeyX25519):
+		if l := len(privKey.Algo.Parameters.FullBytes); l != 0 {
+			return nil, nil, pkerr.NewErrInvalidX25519Params()
+		}
+		var curvePrivateKey []byte
+		if _, err := asn1.Unmarshal(privKey.PrivateKey, &curvePrivateKey); err != nil {
+			return nil, nil, pkerr.NewErrInvalidX25519PrivateKey(err)
+		}
+		key, errNative := ecdh.X25519().NewPrivateKey(curvePrivateKey)
+		return key, nil, pkerr.NewErrNative(errNative)
+
+	default:
+		return nil, nil, pkerr.NewErrPKCS8WrappingUnknownAlgorithm(privKey.Algo.Algorithm)
+	}
 }
 
 // ParsePKCS8PrivateKey parses an unencrypted private key in PKCS #8, ASN.1 DER form.
@@ -33,68 +97,20 @@ type encryptedPrivateKeyInfo struct {
 //
 // Before Go 1.24, the CRT parameters of RSA keys were ignored and recomputed.
 // To restore the old behavior, use the GODEBUG=x509rsacrt=0 environment variable.
-func ParsePKCS8PrivateKey(der []byte) (key any, err pkerr.Kerror) {
-	var privKey keys.Pkcs8
-	if _, err := asn1.Unmarshal(der, &privKey); err != nil {
-		if _, err := asn1.Unmarshal(der, &keys.EcPrivateKey{}); err == nil {
-			return nil, pkerr.NewErrFailToParsePrivateKeyGotoECP()
-		}
-		if _, err := asn1.Unmarshal(der, &keys.Pkcs1PrivateKey{}); err == nil {
-			return nil, pkerr.NewErrFailToParsePrivateKeyGotoPKCS1()
-		}
-		return nil, err
-	}
-
-	switch {
-	case privKey.Algo.Algorithm.Equal(pkix.OidPublicKeyRSA):
-		key, err = pkcs1.ParsePKCS1PrivateKey(privKey.PrivateKey)
-		if err != nil {
-			return nil, pkerr.NewErrParsingRSAPrivateKeyInPKCS8(err)
-		}
-		return key, nil
-
-	case privKey.Algo.Algorithm.Equal(pkix.OidPublicKeyECDSA):
-		bytes := privKey.Algo.Parameters.FullBytes
-		namedCurveOID := new(asn1.ObjectIdentifier)
-		if _, err := asn1.Unmarshal(bytes, namedCurveOID); err != nil {
-			namedCurveOID = nil
-		}
-		key, err = keys.ParseECPrivateKey(namedCurveOID, privKey.PrivateKey)
-		if err != nil {
-			return nil, err
-		}
-		return key, nil
-
-	case privKey.Algo.Algorithm.Equal(pkix.OidPublicKeyEd25519):
-		if l := len(privKey.Algo.Parameters.FullBytes); l != 0 {
-			return nil, pkerr.NewErrInvalidEd25519Params()
-		}
-		var curvePrivateKey []byte
-		if _, err := asn1.Unmarshal(privKey.PrivateKey, &curvePrivateKey); err != nil {
-			return nil, pkerr.NewErrInvalidEd25519PrivateKey(err)
-		}
-		if l := len(curvePrivateKey); l != ed25519.SeedSize {
-			return nil, pkerr.NewErrInvalidEd25519PrivateKeylen(l)
-		}
-		return ed25519.NewKeyFromSeed(curvePrivateKey), nil
-
-	case privKey.Algo.Algorithm.Equal(pkix.OidPublicKeyX25519):
-		if l := len(privKey.Algo.Parameters.FullBytes); l != 0 {
-			return nil, pkerr.NewErrInvalidX25519Params()
-		}
-		var curvePrivateKey []byte
-		if _, err := asn1.Unmarshal(privKey.PrivateKey, &curvePrivateKey); err != nil {
-			return nil, pkerr.NewErrInvalidX25519PrivateKey(err)
-		}
-		key, errNative := ecdh.X25519().NewPrivateKey(curvePrivateKey)
-		return key, pkerr.NewErrNative(errNative)
-
-	default:
-		return nil, pkerr.NewErrPKCS8WrappingUnknownAlgorithm(privKey.Algo.Algorithm)
-	}
+func ParsePKCS8PrivateKey(der []byte) (key crypto.PrivateKey, err pkerr.Kerror) {
+	key, _, err = parsePKCS8(der)
+	return
 }
 
-func ParsePKCS8EncryptedPrivateKey(der, password []byte) (key any, err pkerr.Kerror) {
+func ParsePKCS8Signer(der []byte) (signer crypto.Signer, err pkerr.Kerror) {
+	_, signer, err = parsePKCS8(der)
+	if err == nil && signer == nil {
+		return nil, pkerr.NewErrPKCS8WrappingUnknownAlgorithm(pkix.OidPublicKeyX25519)
+	}
+	return
+}
+
+func ParsePKCS8EncryptedPrivateKey(der, password []byte) (key crypto.PrivateKey, err pkerr.Kerror) {
 	// Use the password provided to decrypt the private key
 	var privKey encryptedPrivateKeyInfo
 	if _, err := asn1.Unmarshal(der, &privKey); err != nil {
@@ -111,6 +127,23 @@ func ParsePKCS8EncryptedPrivateKey(der, password []byte) (key any, err pkerr.Ker
 	return
 }
 
+func ParsePKCS8EncryptedSigner(der, password []byte) (key crypto.Signer, err pkerr.Kerror) {
+	// Use the password provided to decrypt the private key
+	var privKey encryptedPrivateKeyInfo
+	if _, err := asn1.Unmarshal(der, &privKey); err != nil {
+		return nil, pkerr.NewErrOnlyPKCS5v20()
+	}
+
+	var decryptedData []byte
+	decryptedData, err = pkcs5.ParseEncryptedPKCS5(privKey.EncryptionAlgorithm, privKey.EncryptedData, password)
+	if err != nil {
+		return
+	}
+
+	key, err = ParsePKCS8Signer(decryptedData)
+	return
+}
+
 // MarshalPKCS8PrivateKey converts a private key to PKCS #8, ASN.1 DER form.
 //
 // The following key types are currently supported: *[rsa.PrivateKey],
@@ -120,8 +153,8 @@ func ParsePKCS8EncryptedPrivateKey(der, password []byte) (key any, err pkerr.Ker
 // This kind of key is commonly encoded in PEM blocks of type "PRIVATE KEY".
 //
 // MarshalPKCS8PrivateKey runs [rsa.PrivateKey.Precompute] on RSA keys.
-func MarshalPKCS8PrivateKey(key any) ([]byte, pkerr.Kerror) {
-	var privKey keys.Pkcs8
+func MarshalPKCS8PrivateKey(key crypto.PrivateKey) ([]byte, pkerr.Kerror) {
+	var privKey keys.Pkcs8PrivateKey
 
 	switch k := key.(type) {
 	case *rsa.PrivateKey:
@@ -130,8 +163,8 @@ func MarshalPKCS8PrivateKey(key any) ([]byte, pkerr.Kerror) {
 			Parameters: asn1.NullRawValue,
 		}
 		k.Precompute()
-		if err := k.Validate(); err != nil {
-			return nil, pkerr.NewErrNative(err)
+		if nativeError := k.Validate(); nativeError != nil {
+			return nil, pkerr.NewErrNative(nativeError)
 		}
 		privKey.PrivateKey = pkcs1.MarshalPKCS1PrivateKey(k)
 
@@ -200,8 +233,12 @@ func MarshalPKCS8PrivateKey(key any) ([]byte, pkerr.Kerror) {
 	return asn1.Marshal(privKey)
 }
 
+func MarshalPKCS8Signer(key crypto.Signer) ([]byte, pkerr.Kerror) {
+	return MarshalPKCS8PrivateKey(key)
+}
+
 // MarshalPKCS8EncryptedPrivateKey is the same as MarshalPKCS8PrivateKey but encrypt the key using PKCS5 options
-func MarshalPKCS8EncryptedPrivateKey(key any, password []byte, options ...*pkcs5.Opts) ([]byte, pkerr.Kerror) {
+func MarshalPKCS8EncryptedPrivateKey(key crypto.PrivateKey, password []byte, options ...*pkcs5.Opts) ([]byte, pkerr.Kerror) {
 	data, err := MarshalPKCS8PrivateKey(key)
 	if err != nil {
 		return nil, err
@@ -218,4 +255,8 @@ func MarshalPKCS8EncryptedPrivateKey(key any, password []byte, options ...*pkcs5
 	}
 
 	return asn1.Marshal(encryptedPkey)
+}
+
+func MarshalPKCS8EncryptedSigner(key crypto.Signer, password []byte, options ...*pkcs5.Opts) ([]byte, pkerr.Kerror) {
+	return MarshalPKCS8EncryptedPrivateKey(key, password, options...)
 }

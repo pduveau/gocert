@@ -26,19 +26,19 @@ type aesGCMParameters struct {
 
 func Decrypt(alg asn1.ObjectIdentifier, paramBytes, key, cyphertext []byte) ([]byte, pkerr.Kerror) {
 	var block cipher.Block
-	var errNative error
+	var nativeError error
 
 	switch {
 	case alg.Equal(oidDecryptionAlgorithmDESCBC):
-		block, errNative = des.NewCipher(key)
+		block, nativeError = des.NewCipher(key)
 	case alg.Equal(oidDecryptionAlgorithmDESEDE3CBC):
-		block, errNative = des.NewTripleDESCipher(key)
+		block, nativeError = des.NewTripleDESCipher(key)
 	default:
-		block, errNative = aes.NewCipher(key)
+		block, nativeError = aes.NewCipher(key)
 	}
 
-	if errNative != nil {
-		return nil, pkerr.NewErrNative(errNative)
+	if nativeError != nil {
+		return nil, pkerr.NewErrNative(nativeError)
 	}
 
 	if alg.Equal(pkix.OIDEncryptionAlgorithmAES128GCM) || alg.Equal(pkix.OIDEncryptionAlgorithmAES256GCM) {
@@ -49,9 +49,9 @@ func Decrypt(alg asn1.ObjectIdentifier, paramBytes, key, cyphertext []byte) ([]b
 			return nil, perr
 		}
 
-		gcm, errNative := cipher.NewGCM(block)
-		if errNative != nil {
-			return nil, pkerr.NewErrNative(errNative)
+		gcm, nativeError := cipher.NewGCM(block)
+		if nativeError != nil {
+			return nil, pkerr.NewErrNative(nativeError)
 		}
 
 		if len(params.Nonce) != gcm.NonceSize() {
@@ -61,9 +61,9 @@ func Decrypt(alg asn1.ObjectIdentifier, paramBytes, key, cyphertext []byte) ([]b
 			return nil, pkerr.NewErrEncryptionParams()
 		}
 
-		plaintext, errNative := gcm.Open(nil, params.Nonce, cyphertext, nil)
-		if errNative != nil {
-			return nil, pkerr.NewErrNative(errNative)
+		plaintext, nativeError := gcm.Open(nil, params.Nonce, cyphertext, nil)
+		if nativeError != nil {
+			return nil, pkerr.NewErrNative(nativeError)
 		}
 
 		return plaintext, nil
@@ -75,48 +75,45 @@ func Decrypt(alg asn1.ObjectIdentifier, paramBytes, key, cyphertext []byte) ([]b
 	mode := cipher.NewCBCDecrypter(block, paramBytes)
 	plaintext := make([]byte, len(cyphertext))
 	mode.CryptBlocks(plaintext, cyphertext)
-	if plaintext, errNative = Unpad(plaintext, mode.BlockSize()); errNative != nil {
-		return nil, pkerr.NewErrNative(errNative)
-	}
-	return plaintext, nil
+
+	return Unpad(plaintext, mode.BlockSize())
 }
 
 func EncryptAESGCM(content []byte, key []byte) (ciphertext []byte, params *asn1.RawValue, perr pkerr.Kerror) {
 	var block cipher.Block
 	var gcm cipher.AEAD
 	var paramBytes []byte
-	var errNative error
+	var nativeError error
 	// Create nonce
 	nonce := make([]byte, nonceSize)
 
-	_, errNative = rand.Read(nonce)
-	if errNative != nil {
-		perr = pkerr.NewErrNative(errNative)
+	_, nativeError = rand.Read(nonce)
+	if nativeError != nil {
+		perr = pkerr.NewErrNative(nativeError)
 		return
 	}
 
 	// Encrypt content
-	block, errNative = aes.NewCipher(key)
-	if errNative != nil {
-		perr = pkerr.NewErrNative(errNative)
+	block, nativeError = aes.NewCipher(key)
+	if nativeError != nil {
+		perr = pkerr.NewErrNative(nativeError)
 		return
 	}
 
-	gcm, errNative = cipher.NewGCM(block)
-	if errNative != nil {
-		perr = pkerr.NewErrNative(errNative)
+	gcm, nativeError = cipher.NewGCM(block)
+	if nativeError != nil {
+		perr = pkerr.NewErrNative(nativeError)
 		return
 	}
 
 	ciphertext = gcm.Seal(nil, nonce, content, nil)
 
 	// Prepare ASN.1 Encrypted Content Info
-	paramBytes, errNative = asn1.Marshal(aesGCMParameters{
+	paramBytes, perr = asn1.Marshal(aesGCMParameters{
 		Nonce:  nonce,
 		ICVLen: gcm.Overhead(),
 	})
-	if errNative != nil {
-		perr = pkerr.NewErrNative(errNative)
+	if perr != nil {
 		return
 	}
 
@@ -131,17 +128,16 @@ func EncryptAESGCM(content []byte, key []byte) (ciphertext []byte, params *asn1.
 func EncryptAESCBC(content, iv, key []byte) (encryptedText []byte, params *asn1.RawValue, perr pkerr.Kerror) {
 	// Encrypt padded content
 	var block cipher.Block
-	var errNative error
+	var nativeError error
 
-	block, errNative = aes.NewCipher(key)
-	if errNative != nil {
-		perr = pkerr.NewErrNative(errNative)
+	block, nativeError = aes.NewCipher(key)
+	if nativeError != nil {
+		perr = pkerr.NewErrNative(nativeError)
 		return
 	}
 	mode := cipher.NewCBCEncrypter(block, iv)
-	encryptedText, errNative = Pad(content, mode.BlockSize())
-	if errNative != nil {
-		perr = pkerr.NewErrNative(errNative)
+	encryptedText, perr = Pad(content, mode.BlockSize())
+	if perr != nil {
 		return
 	}
 	mode.CryptBlocks(encryptedText, encryptedText)

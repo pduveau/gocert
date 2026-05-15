@@ -204,15 +204,15 @@ QfjfFBG9JG2mUmYQP1KQ3SypGHzDW8vngvsGu//tNU0NFfOqQu4bYU4VpQl0nPtD
 -----END PKCS7-----`
 
 func TestVerifyApkEcdsa(t *testing.T) {
-	var errNative error
+	var nativeError error
 	fixture := UnmarshalTestFixture(ApkEcdsaFixture)
 	p7, err := Parse(fixture.Input)
 	if err != nil {
 		t.Errorf("Parse encountered unexpected error: %v", err)
 	}
-	p7.Content, errNative = base64.StdEncoding.DecodeString(ApkEcdsaContent)
-	if errNative != nil {
-		t.Errorf("Failed to decode base64 signature file: %v", errNative)
+	p7.Content, nativeError = base64.StdEncoding.DecodeString(ApkEcdsaContent)
+	if nativeError != nil {
+		t.Errorf("Failed to decode base64 signature file: %v", nativeError)
 	}
 	if err := p7.Verify(); err != nil {
 		t.Errorf("Verify failed with error: %v", err)

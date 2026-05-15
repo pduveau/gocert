@@ -10,7 +10,7 @@ import (
 	"github.com/pduveau/gocert/pkerr"
 )
 
-func (c *Certificate) systemVerify(opts *VerifyOptions) (chains [][]*Certificate, err pkerr.Pkerror) {
+func (c *Certificate) systemVerify(opts *VerifyOptions) (chains [][]*Certificate, err pkerr.Kerror) {
 	certs := macos.CFArrayCreateMutable()
 	defer macos.ReleaseCFArray(certs)
 	leaf, err := macos.SecCertificateCreateWithData(c.Raw)
@@ -59,16 +59,16 @@ func (c *Certificate) systemVerify(opts *VerifyOptions) (chains [][]*Certificate
 	// always enforce its SCT requirements, and there are still _some_ people
 	// using TLS or OCSP for that.
 
-	if ret, err := macos.SecTrustEvaluateWithError(trustObj); err != nil {
+	if ret, nativeError := macos.SecTrustEvaluateWithError(trustObj); nativeError != nil {
 		switch ret {
 		case macos.ErrSecCertificateExpired:
-			return nil, pkerr.NewErrCertificateInvalid(pkerr.Expired, err.Error())
+			return nil, pkerr.NewErrCertificateInvalid(pkerr.NunErrExpired, nativeError.Error())
 		case macos.ErrSecHostNameMismatch:
 			return nil, HostnameError(opts.DNSName, c)
 		case macos.ErrSecNotTrusted:
 			return nil, UnknownAuthorityError(nil, nil)
 		default:
-			return nil, pkerr.NewBaseErrorFromNativeError(err)
+			return nil, pkerr.NewErrNative(nativeError)
 		}
 	}
 
@@ -111,14 +111,14 @@ func (c *Certificate) systemVerify(opts *VerifyOptions) (chains [][]*Certificate
 	}
 
 	if !checkChainForKeyUsage(chain[0], keyUsages) {
-		return nil, pkerr.NewErrCertificateInvalid(pkerr.IncompatibleUsage)
+		return nil, pkerr.NewErrCertificateInvalid(pkerr.NunErrIncompatibleUsage)
 	}
 
 	return chain, nil
 }
 
 // exportCertificate returns a *Certificate for a SecCertificateRef.
-func exportCertificate(cert macos.CFRef) (*Certificate, pkerr.Pkerror) {
+func exportCertificate(cert macos.CFRef) (*Certificate, pkerr.Kerror) {
 	data, err := macos.SecCertificateCopyData(cert)
 	if err != nil {
 		return nil, err
@@ -126,6 +126,6 @@ func exportCertificate(cert macos.CFRef) (*Certificate, pkerr.Pkerror) {
 	return ParseCertificate(data)
 }
 
-func loadSystemRoots() (*CertPool, pkerr.Pkerror) {
+func loadSystemRoots() (*CertPool, pkerr.Kerror) {
 	return &CertPool{systemPool: true}, nil
 }

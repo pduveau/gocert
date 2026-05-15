@@ -40,7 +40,7 @@ func (s OSStatus) Error() string {
 
 //go:cgo_import_dynamic x509_SecTrustCreateWithCertificates SecTrustCreateWithCertificates "/System/Library/Frameworks/Security.framework/Versions/A/Security"
 
-func SecTrustCreateWithCertificates(certs CFRef, policies CFRef) (CFRef, pkerr.Pkerror) {
+func SecTrustCreateWithCertificates(certs CFRef, policies CFRef) (CFRef, pkerr.Kerror) {
 	var trustObj CFRef
 	ret := syscall(FuncPCABI0(x509_SecTrustCreateWithCertificates_trampoline), uintptr(certs), uintptr(policies),
 		uintptr(unsafe.Pointer(&trustObj)), 0, 0, 0)
@@ -53,7 +53,7 @@ func x509_SecTrustCreateWithCertificates_trampoline()
 
 //go:cgo_import_dynamic x509_SecCertificateCreateWithData SecCertificateCreateWithData "/System/Library/Frameworks/Security.framework/Versions/A/Security"
 
-func SecCertificateCreateWithData(b []byte) (CFRef, pkerr.Pkerror) {
+func SecCertificateCreateWithData(b []byte) (CFRef, pkerr.Kerror) {
 	data := BytesToCFData(b)
 	defer CFRelease(data)
 	ret := syscall(FuncPCABI0(x509_SecCertificateCreateWithData_trampoline), kCFAllocatorDefault, uintptr(data), 0, 0, 0, 0)
@@ -68,7 +68,7 @@ func x509_SecCertificateCreateWithData_trampoline()
 
 //go:cgo_import_dynamic x509_SecPolicyCreateSSL SecPolicyCreateSSL "/System/Library/Frameworks/Security.framework/Versions/A/Security"
 
-func SecPolicyCreateSSL(name string) (CFRef, pkerr.Pkerror) {
+func SecPolicyCreateSSL(name string) (CFRef, pkerr.Kerror) {
 	var hostname CFString
 	if name != "" {
 		hostname = StringToCFString(name)
@@ -84,7 +84,7 @@ func x509_SecPolicyCreateSSL_trampoline()
 
 //go:cgo_import_dynamic x509_SecTrustSetVerifyDate SecTrustSetVerifyDate "/System/Library/Frameworks/Security.framework/Versions/A/Security"
 
-func SecTrustSetVerifyDate(trustObj CFRef, dateRef CFRef) pkerr.Pkerror {
+func SecTrustSetVerifyDate(trustObj CFRef, dateRef CFRef) pkerr.Kerror {
 	ret := syscall(FuncPCABI0(x509_SecTrustSetVerifyDate_trampoline), uintptr(trustObj), uintptr(dateRef), 0, 0, 0, 0)
 	if int32(ret) != 0 {
 		return pkerr.NewErrOSStatus("SecTrustSetVerifyDate", int32(ret))
@@ -95,7 +95,7 @@ func x509_SecTrustSetVerifyDate_trampoline()
 
 //go:cgo_import_dynamic x509_SecTrustEvaluate SecTrustEvaluate "/System/Library/Frameworks/Security.framework/Versions/A/Security"
 
-func SecTrustEvaluate(trustObj CFRef) (CFRef, pkerr.Pkerror) {
+func SecTrustEvaluate(trustObj CFRef) (CFRef, pkerr.Kerror) {
 	var result CFRef
 	ret := syscall(FuncPCABI0(x509_SecTrustEvaluate_trampoline), uintptr(trustObj), uintptr(unsafe.Pointer(&result)), 0, 0, 0, 0)
 	if int32(ret) != 0 {
@@ -107,7 +107,7 @@ func x509_SecTrustEvaluate_trampoline()
 
 //go:cgo_import_dynamic x509_SecTrustEvaluateWithError SecTrustEvaluateWithError "/System/Library/Frameworks/Security.framework/Versions/A/Security"
 
-func SecTrustEvaluateWithError(trustObj CFRef) (int, pkerr.Pkerror) {
+func SecTrustEvaluateWithError(trustObj CFRef) (int, pkerr.Kerror) {
 	var errRef CFRef
 	ret := syscall(FuncPCABI0(x509_SecTrustEvaluateWithError_trampoline), uintptr(trustObj), uintptr(unsafe.Pointer(&errRef)), 0, 0, 0, 0)
 	if int32(ret) != 1 {
@@ -124,10 +124,10 @@ func x509_SecTrustEvaluateWithError_trampoline()
 
 //go:cgo_import_dynamic x509_SecCertificateCopyData SecCertificateCopyData "/System/Library/Frameworks/Security.framework/Versions/A/Security"
 
-func SecCertificateCopyData(cert CFRef) ([]byte, pkerr.Pkerror) {
+func SecCertificateCopyData(cert CFRef) ([]byte, pkerr.Kerror) {
 	ret := syscall(FuncPCABI0(x509_SecCertificateCopyData_trampoline), uintptr(cert), 0, 0, 0, 0, 0)
 	if ret == 0 {
-		return nil, pkerr.NewErrInvalidCertificate()
+		return nil, pkerr.NewErrCertificateInvalid(0)
 	}
 	b := CFDataToSlice(CFRef(ret))
 	CFRelease(CFRef(ret))
@@ -137,7 +137,7 @@ func x509_SecCertificateCopyData_trampoline()
 
 //go:cgo_import_dynamic x509_SecTrustCopyCertificateChain SecTrustCopyCertificateChain "/System/Library/Frameworks/Security.framework/Versions/A/Security"
 
-func SecTrustCopyCertificateChain(trustObj CFRef) (CFRef, pkerr.Pkerror) {
+func SecTrustCopyCertificateChain(trustObj CFRef) (CFRef, pkerr.Kerror) {
 	ret := syscall(FuncPCABI0(x509_SecTrustCopyCertificateChain_trampoline), uintptr(trustObj), 0, 0, 0, 0, 0)
 	if ret == 0 {
 		return 0, pkerr.NewErrOSStatus("SecTrustCopyCertificateChain", int32(ret))

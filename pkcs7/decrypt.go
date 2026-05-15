@@ -29,9 +29,9 @@ func (p7 *PKCS7) Decrypt(cert *x509.Certificate, pkey crypto.PrivateKey) ([]byte
 	switch k := pkey.(type) {
 	case *rsa.PrivateKey:
 		var contentKey []byte
-		contentKey, err := rsa.DecryptPKCS1v15(rand.Reader, k, recipient.EncryptedKey)
-		if err != nil {
-			return nil, pkerr.NewErrNative(err)
+		contentKey, nativeError := rsa.DecryptPKCS1v15(rand.Reader, k, recipient.EncryptedKey)
+		if nativeError != nil {
+			return nil, pkerr.NewErrNative(nativeError)
 		}
 		return data.EncryptedContentInfo.decrypt(contentKey)
 	}
@@ -81,19 +81,19 @@ func (eci encryptedContentInfo) decrypt(key []byte) ([]byte, pkerr.Kerror) {
 	}
 
 	var block cipher.Block
-	var errNative error
+	var nativeError error
 
 	switch {
 	case alg.Equal(oidDecryptionAlgorithmDESCBC):
-		block, errNative = des.NewCipher(key)
+		block, nativeError = des.NewCipher(key)
 	case alg.Equal(oidDecryptionAlgorithmDESEDE3CBC):
-		block, errNative = des.NewTripleDESCipher(key)
+		block, nativeError = des.NewTripleDESCipher(key)
 	default:
-		block, errNative = aes.NewCipher(key)
+		block, nativeError = aes.NewCipher(key)
 	}
 
-	if errNative != nil {
-		return nil, pkerr.NewErrNative(errNative)
+	if nativeError != nil {
+		return nil, pkerr.NewErrNative(nativeError)
 	}
 
 	if alg.Equal(pkix.OIDEncryptionAlgorithmAES128GCM) || alg.Equal(pkix.OIDEncryptionAlgorithmAES256GCM) {
@@ -105,9 +105,9 @@ func (eci encryptedContentInfo) decrypt(key []byte) ([]byte, pkerr.Kerror) {
 			return nil, err
 		}
 
-		gcm, errNative := cipher.NewGCM(block)
-		if errNative != nil {
-			return nil, pkerr.NewErrNative(errNative)
+		gcm, nativeError := cipher.NewGCM(block)
+		if nativeError != nil {
+			return nil, pkerr.NewErrNative(nativeError)
 		}
 
 		if len(params.Nonce) != gcm.NonceSize() {
@@ -117,8 +117,8 @@ func (eci encryptedContentInfo) decrypt(key []byte) ([]byte, pkerr.Kerror) {
 			return nil, pkerr.NewErrInvalidAlgorithmParams()
 		}
 
-		plaintext, errNative := gcm.Open(nil, params.Nonce, cyphertext, nil)
-		return plaintext, pkerr.NewErrNative(errNative)
+		plaintext, nativeError := gcm.Open(nil, params.Nonce, cyphertext, nil)
+		return plaintext, pkerr.NewErrNative(nativeError)
 	}
 
 	iv := eci.ContentEncryptionAlgorithm.Parameters.Bytes

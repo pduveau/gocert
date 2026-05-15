@@ -3,53 +3,53 @@ package pkerr
 type ErrUnsupportedPBMAC1Algorithm struct{ BaseError }
 
 func NewErrUnsupportedPBMAC1Algorithm(algo string) Kerror {
-	return &ErrUnsupportedPBMAC1Algorithm{BaseError: NewBaseErrorData(NumErrUnsupportedPBMAC1Algorithm, "PBMAC1 MAC algorithm %s is not supported", algo)}
+	return &ErrUnsupportedPBMAC1Algorithm{BaseError: newBaseErrorData(NumErrUnsupportedPBMAC1Algorithm, "PBMAC1 MAC algorithm %s is not supported", algo)}
 }
 
 type ErrUnsupportedEncryptionAlgorithm struct{ BaseError }
 
 func NewErrUnsupportedEncryptionAlgorithm(algo string) Kerror {
-	return &ErrUnsupportedEncryptionAlgorithm{BaseError: NewBaseErrorData(NumErrUnsupportedEncryptionAlgorithm, "unsupported encryption algorithm (%s)", algo)}
+	return &ErrUnsupportedEncryptionAlgorithm{BaseError: newBaseErrorData(NumErrUnsupportedEncryptionAlgorithm, "unsupported encryption algorithm (%s)", algo)}
 }
 
 type ErrInvalidKDFParams struct{ BaseError }
 
 func NewErrInvalidKDFParams(v any) Kerror {
-	return &ErrInvalidKDFParams{BaseError: NewBaseErrorData(NumErrInvalidKDFParams, "invalid KDF parameters (%v)", v)}
+	return &ErrInvalidKDFParams{BaseError: newBaseErrorData(NumErrInvalidKDFParams, "invalid KDF parameters (%v)", v)}
 }
 
 type ErrInvalidPBES2Params struct{ BaseError }
 
 func NewErrInvalidPBES2Params() Kerror {
-	return &ErrInvalidPBES2Params{BaseError: NewBaseError(NumErrInvalidPBES2Params, "invalid PBES2 parameters")}
+	return &ErrInvalidPBES2Params{BaseError: newBaseError(NumErrInvalidPBES2Params, "invalid PBES2 parameters")}
 }
 
 type ErrEmptySalt struct{ BaseError }
 
 func NewErrEmptySalt() Kerror {
-	return &ErrEmptySalt{BaseError: NewBaseError(NumErrEmptySalt, "salt is empty")}
+	return &ErrEmptySalt{BaseError: newBaseError(NumErrEmptySalt, "salt is empty")}
 }
 
 type ErrUnsupportedHash struct{ BaseError }
 
 func NewErrUnsupportedHash() Kerror {
-	return &ErrUnsupportedHash{BaseError: NewBaseError(NumErrUnsupportedHash, "unsupported hash function")}
+	return &ErrUnsupportedHash{BaseError: newBaseError(NumErrUnsupportedHash, "unsupported hash function")}
 }
 
 type ErrUnsupportedKDFOid struct{ BaseError }
 
 func NewErrUnsupportedKDFOid(oid string) Kerror {
-	return &ErrUnsupportedKDFOid{BaseError: NewBaseErrorData(NumErrUnsupportedKDFOid, "unsupported KDF (OID: %s)", oid)}
+	return &ErrUnsupportedKDFOid{BaseError: newBaseErrorData(NumErrUnsupportedKDFOid, "unsupported KDF (OID: %s)", oid)}
 }
 
 type ErrPasswordMissing struct{ BaseError }
 
 func NewErrPasswordMissing() Kerror {
-	return &ErrPasswordMissing{BaseError: NewBaseError(NumErrPasswordMissing, "password is required")}
+	return &ErrPasswordMissing{BaseError: newBaseError(NumErrPasswordMissing, "password is required")}
 }
 
 type ErrPBES2Only struct{ BaseError }
 
 func NewErrPBES2Only() Kerror {
-	return &ErrPBES2Only{BaseError: NewBaseError(NumErrPBES2Only, "only PBES2 is supported")}
+	return &ErrPBES2Only{BaseError: newBaseError(NumErrPBES2Only, "only PBES2 is supported")}
 }

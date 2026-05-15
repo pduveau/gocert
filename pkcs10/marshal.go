@@ -4,7 +4,7 @@ import (
 	"crypto"
 
 	"github.com/pduveau/gocert/asn1"
-	"github.com/pduveau/gocert/internal/keys"
+	"github.com/pduveau/gocert/keys"
 	"github.com/pduveau/gocert/pkerr"
 	"github.com/pduveau/gocert/pkix"
 	"github.com/pduveau/gocert/x509"
@@ -14,8 +14,8 @@ import (
 type CertificateRequest struct {
 	Raw                      []byte // Complete ASN.1 DER content (CSR, signature algorithm and signature).
 	RawTBSCertificateRequest []byte // Certificate request info part of raw ASN.1 DER content.
-	RawSubjectPublicKeyInfo  []byte // DER encoded SubjectPublicKeyInfo.
-	RawSubject               []byte // DER encoded Subject.
+	//	RawSubjectPublicKeyInfo  []byte // DER encoded SubjectPublicKeyInfo.
+	RawSubject []byte // DER encoded Subject.
 
 	Version            int
 	Signature          []byte
@@ -249,8 +249,8 @@ func parseCertificateRequest(in *certificateRequest) (*CertificateRequest, pkerr
 	out := &CertificateRequest{
 		Raw:                      in.Raw,
 		RawTBSCertificateRequest: in.TBSCSR.Raw,
-		RawSubjectPublicKeyInfo:  in.TBSCSR.PublicKey.Raw,
-		RawSubject:               in.TBSCSR.Subject.FullBytes,
+		//		RawSubjectPublicKeyInfo:  in.TBSCSR.PublicKey.Raw,
+		RawSubject: in.TBSCSR.Subject.FullBytes,
 
 		Signature:          in.SignatureValue.RightAlign(),
 		SignatureAlgorithm: in.SignatureAlgorithm.GetSignatureAlgorithm(),

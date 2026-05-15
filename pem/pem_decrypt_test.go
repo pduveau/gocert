@@ -30,9 +30,9 @@ func TestDecrypt(t *testing.T) {
 		if _, err := pkcs1.ParsePKCS1PrivateKey(der); err != nil {
 			t.Error("invalid private key: ", err)
 		}
-		plainDER, errNative := base64.StdEncoding.DecodeString(data.plainDER)
-		if errNative != nil {
-			t.Fatal("cannot decode test DER data: ", errNative)
+		plainDER, nativeError := base64.StdEncoding.DecodeString(data.plainDER)
+		if nativeError != nil {
+			t.Fatal("cannot decode test DER data: ", nativeError)
 		}
 		if !bytes.Equal(der, plainDER) {
 			t.Error("data mismatch")

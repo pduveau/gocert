@@ -39,7 +39,7 @@ func (e *BaseError) Num() ErrorNumeric {
 	return e.errNum
 }
 
-func NewBaseErrorData(num ErrorNumeric, format string, data ...any) BaseError {
+func newBaseErrorData(num ErrorNumeric, format string, data ...any) BaseError {
 	_, file, line, _ := runtime.Caller(2)
 	file = "gocert" + strings.Split(file, "gocert")[1]
 	return BaseError{
@@ -51,7 +51,7 @@ func NewBaseErrorData(num ErrorNumeric, format string, data ...any) BaseError {
 	}
 }
 
-func NewBaseError(num ErrorNumeric, format string) BaseError {
+func newBaseError(num ErrorNumeric, format string) BaseError {
 	_, file, line, _ := runtime.Caller(2)
 	file = "gocert" + strings.Split(file, "gocert")[1]
 	return BaseError{
@@ -81,31 +81,31 @@ func NewErrNative(err error) Kerror {
 
 /*type Err struct{ BaseError }
 
-func New() Pkerror {
+func New() Kerror {
 	return &{BaseError: NewBaseError(0, "")}
 }
 
 /*type Err struct{ BaseError }
 
-func New() Pkerror {
+func New() Kerror {
 	return &{BaseError: NewBaseError(0, "")}
 }
 
 /*type Err struct{ BaseError }
 
-func New() Pkerror {
+func New() Kerror {
 	return &{BaseError: NewBaseError(0, "")}
 }
 
 /*type Err struct{ BaseError }
 
-func New() Pkerror {
+func New() Kerror {
 	return &{BaseError: NewBaseError(0, "")}
 }
 
 /*type Err struct{ BaseError }
 
-func New() Pkerror {
+func New() Kerror {
 	return &{BaseError: NewBaseError(0, "")}
 }
 

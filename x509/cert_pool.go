@@ -56,7 +56,7 @@ type lazyCert struct {
 	// It is not meant to do network operations or anything else
 	// where a failure is likely; the func is meant to lazily
 	// parse/decompress data that is already known to be good. The
-	// pkerr.Pkerror in the signature primarily is meant for use in the
+	// pkerr.Kerror in the signature primarily is meant for use in the
 	// case where a cert file existed on local disk when the program
 	// started up is deleted later before it's read.
 	getCert func() (*Certificate, pkerr.Kerror)
@@ -271,7 +271,7 @@ func (s *CertPool) Equal(other *CertPool) bool {
 // AddCertWithConstraint adds a certificate to the pool with the additional
 // constraint. When Certificate.Verify builds a chain which is rooted by cert,
 // it will additionally pass the whole chain to constraint to determine its
-// validity. If constraint returns a non-nil pkerr.Pkerror, the chain will be discarded.
+// validity. If constraint returns a non-nil pkerr.Kerror, the chain will be discarded.
 // constraint may be called concurrently from multiple goroutines.
 func (s *CertPool) AddCertWithConstraint(cert *Certificate, constraint func([]*Certificate) pkerr.Kerror) {
 	if cert == nil {

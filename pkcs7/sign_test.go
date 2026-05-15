@@ -110,11 +110,11 @@ func TestExampleSignedData(t *testing.T) {
 	signedData.Detach()
 
 	// Finish() to obtain the signature bytes
-	detachedSignature, err := signedData.Finish()
+	_, err = signedData.Finish()
 	if err != nil {
 		t.Fatalf("Cannot finish signing data: %s", err)
 	}
-	pem.Encode(os.Stdout, &pem.Block{Type: "PKCS7", Bytes: detachedSignature})
+	// pem.Encode(os.Stdout, &pem.Block{Type: "PKCS7", Bytes: detachedSignature})
 }
 
 func TestSignedDataWithContentType(t *testing.T) {
@@ -136,11 +136,11 @@ func TestSignedDataWithContentType(t *testing.T) {
 	}
 
 	// Finish() to obtain the signature bytes
-	detachedSignature, err := signedData.Finish()
+	_, err = signedData.Finish()
 	if err != nil {
 		t.Errorf("Cannot finish signing data: %s", err)
 	}
-	pem.Encode(os.Stdout, &pem.Block{Type: "PKCS7", Bytes: detachedSignature})
+	//pem.Encode(os.Stdout, &pem.Block{Type: "PKCS7", Bytes: detachedSignature})
 }
 
 func TestUnmarshalSignedAttribute(t *testing.T) {
@@ -188,7 +188,7 @@ func TestDegenerateCertificate(t *testing.T) {
 		t.Fatal(err)
 	}
 	testOpenSSLParse(t, deg)
-	pem.Encode(os.Stdout, &pem.Block{Type: "PKCS7", Bytes: deg})
+	//pem.Encode(os.Stdout, &pem.Block{Type: "PKCS7", Bytes: deg})
 }
 
 // writes the cert to a temporary file and tests that openssl can read it.

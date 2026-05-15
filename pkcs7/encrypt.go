@@ -98,29 +98,29 @@ func encryptAESGCM(ContentEncryptionAlgorithm EncryptionAlgorithm, content []byt
 		// Create AES key
 		key = make([]byte, keyLen)
 
-		_, err := rand.Read(key)
-		if err != nil {
-			return nil, nil, pkerr.NewErrNative(err)
+		_, nativeError := rand.Read(key)
+		if nativeError != nil {
+			return nil, nil, pkerr.NewErrNative(nativeError)
 		}
 	}
 
 	// Create nonce
 	nonce := make([]byte, nonceSize)
 
-	_, errNative := rand.Read(nonce)
-	if errNative != nil {
-		return nil, nil, pkerr.NewErrNative(errNative)
+	_, nativeError := rand.Read(nonce)
+	if nativeError != nil {
+		return nil, nil, pkerr.NewErrNative(nativeError)
 	}
 
 	// Encrypt content
-	block, errNative := aes.NewCipher(key)
-	if errNative != nil {
-		return nil, nil, pkerr.NewErrNative(errNative)
+	block, nativeError := aes.NewCipher(key)
+	if nativeError != nil {
+		return nil, nil, pkerr.NewErrNative(nativeError)
 	}
 
-	gcm, errNative := cipher.NewGCM(block)
-	if errNative != nil {
-		return nil, nil, pkerr.NewErrNative(errNative)
+	gcm, nativeError := cipher.NewGCM(block)
+	if nativeError != nil {
+		return nil, nil, pkerr.NewErrNative(nativeError)
 	}
 
 	ciphertext := gcm.Seal(nil, nonce, content, nil)
@@ -132,7 +132,7 @@ func encryptAESGCM(ContentEncryptionAlgorithm EncryptionAlgorithm, content []byt
 	}
 
 	paramBytes, err := asn1.Marshal(paramSeq)
-	if errNative != nil {
+	if err != nil {
 		return nil, nil, err
 	}
 
@@ -169,27 +169,27 @@ func encryptAESCBC(ContentEncryptionAlgorithm EncryptionAlgorithm, content []byt
 		// Create AES key
 		key = make([]byte, keyLen)
 
-		_, errNative := rand.Read(key)
-		if errNative != nil {
-			return nil, nil, pkerr.NewErrNative(errNative)
+		_, nativeError := rand.Read(key)
+		if nativeError != nil {
+			return nil, nil, pkerr.NewErrNative(nativeError)
 		}
 	}
 
 	// Create CBC IV
 	iv := make([]byte, aes.BlockSize)
-	_, errNative := rand.Read(iv)
-	if errNative != nil {
-		return nil, nil, pkerr.NewErrNative(errNative)
+	_, nativeError := rand.Read(iv)
+	if nativeError != nil {
+		return nil, nil, pkerr.NewErrNative(nativeError)
 	}
 
 	// Encrypt padded content
-	block, errNative := aes.NewCipher(key)
-	if errNative != nil {
-		return nil, nil, pkerr.NewErrNative(errNative)
+	block, nativeError := aes.NewCipher(key)
+	if nativeError != nil {
+		return nil, nil, pkerr.NewErrNative(nativeError)
 	}
 	mode := cipher.NewCBCEncrypter(block, iv)
 	plaintext, err := intcrypto.Pad(content, mode.BlockSize())
-	if errNative != nil {
+	if err != nil {
 		return nil, nil, err
 	}
 	cyphertext := make([]byte, len(plaintext))
@@ -330,9 +330,9 @@ func marshalEncryptedContent(content []byte) asn1.RawValue {
 
 func encryptKey(key []byte, recipient *x509.Certificate) ([]byte, pkerr.Kerror) {
 	if pub := recipient.PublicKey.(*rsa.PublicKey); pub != nil {
-		out, err := rsa.EncryptPKCS1v15(rand.Reader, pub, key)
-		if err != nil {
-			return nil, pkerr.NewErrNative(err)
+		out, nativeError := rsa.EncryptPKCS1v15(rand.Reader, pub, key)
+		if nativeError != nil {
+			return nil, pkerr.NewErrNative(nativeError)
 		}
 		return out, nil
 	}

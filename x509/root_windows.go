@@ -28,21 +28,21 @@ func loadSystemRoots() (*CertPool, pkerr.Kerror) {
 func createStoreContext(leaf *Certificate, opts *VerifyOptions) (*syscall.CertContext, pkerr.Kerror) {
 	var storeCtx *syscall.CertContext
 
-	leafCtx, err := syscall.CertCreateCertificateContext(syscall.X509_ASN_ENCODING|syscall.PKCS_7_ASN_ENCODING, &leaf.Raw[0], uint32(len(leaf.Raw)))
-	if err != nil {
-		return nil, pkerr.NewErrNative(err)
+	leafCtx, nativeError := syscall.CertCreateCertificateContext(syscall.X509_ASN_ENCODING|syscall.PKCS_7_ASN_ENCODING, &leaf.Raw[0], uint32(len(leaf.Raw)))
+	if nativeError != nil {
+		return nil, pkerr.NewErrNative(nativeError)
 	}
 	defer syscall.CertFreeCertificateContext(leafCtx)
 
-	handle, err := syscall.CertOpenStore(syscall.CERT_STORE_PROV_MEMORY, 0, 0, syscall.CERT_STORE_DEFER_CLOSE_UNTIL_LAST_FREE_FLAG, 0)
-	if err != nil {
-		return nil, pkerr.NewErrNative(err)
+	handle, nativeError := syscall.CertOpenStore(syscall.CERT_STORE_PROV_MEMORY, 0, 0, syscall.CERT_STORE_DEFER_CLOSE_UNTIL_LAST_FREE_FLAG, 0)
+	if nativeError != nil {
+		return nil, pkerr.NewErrNative(nativeError)
 	}
 	defer syscall.CertCloseStore(handle, 0)
 
-	err = syscall.CertAddCertificateContextToStore(handle, leafCtx, syscall.CERT_STORE_ADD_ALWAYS, &storeCtx)
-	if err != nil {
-		return nil, pkerr.NewErrNative(err)
+	nativeError = syscall.CertAddCertificateContextToStore(handle, leafCtx, syscall.CERT_STORE_ADD_ALWAYS, &storeCtx)
+	if nativeError != nil {
+		return nil, pkerr.NewErrNative(nativeError)
 	}
 
 	if opts.Intermediates != nil {
@@ -51,15 +51,15 @@ func createStoreContext(leaf *Certificate, opts *VerifyOptions) (*syscall.CertCo
 			if err != nil {
 				return nil, err
 			}
-			ctx, errNative := syscall.CertCreateCertificateContext(syscall.X509_ASN_ENCODING|syscall.PKCS_7_ASN_ENCODING, &intermediate.Raw[0], uint32(len(intermediate.Raw)))
-			if errNative != nil {
-				return nil, pkerr.NewErrNative(errNative)
+			ctx, nativeError := syscall.CertCreateCertificateContext(syscall.X509_ASN_ENCODING|syscall.PKCS_7_ASN_ENCODING, &intermediate.Raw[0], uint32(len(intermediate.Raw)))
+			if nativeError != nil {
+				return nil, pkerr.NewErrNative(nativeError)
 			}
 
-			errNative = syscall.CertAddCertificateContextToStore(handle, ctx, syscall.CERT_STORE_ADD_ALWAYS, nil)
+			nativeError = syscall.CertAddCertificateContextToStore(handle, ctx, syscall.CERT_STORE_ADD_ALWAYS, nil)
 			syscall.CertFreeCertificateContext(ctx)
-			if errNative != nil {
-				return nil, pkerr.NewErrNative(errNative)
+			if nativeError != nil {
+				return nil, pkerr.NewErrNative(nativeError)
 			}
 		}
 	}
@@ -112,9 +112,9 @@ func checkChainTrustStatus(chainCtx *syscall.CertChainContext) pkerr.Kerror {
 // checkChainSSLServerPolicy checks that the certificate chain in chainCtx is valid for
 // use as a certificate chain for a SSL/TLS server.
 func checkChainSSLServerPolicy(c *Certificate, chainCtx *syscall.CertChainContext, opts *VerifyOptions) pkerr.Kerror {
-	servernamep, err := syscall.UTF16PtrFromString(strings.TrimSuffix(opts.DNSName, "."))
-	if err != nil {
-		return pkerr.NewErrNative(err)
+	servernamep, nativeError := syscall.UTF16PtrFromString(strings.TrimSuffix(opts.DNSName, "."))
+	if nativeError != nil {
+		return pkerr.NewErrNative(nativeError)
 	}
 	sslPara := &syscall.SSLExtraCertChainPolicyPara{
 		AuthType:   syscall.AUTHTYPE_SERVER,
@@ -128,9 +128,9 @@ func checkChainSSLServerPolicy(c *Certificate, chainCtx *syscall.CertChainContex
 	para.Size = uint32(unsafe.Sizeof(*para))
 
 	status := syscall.CertChainPolicyStatus{}
-	err = syscall.CertVerifyCertificateChainPolicy(syscall.CERT_CHAIN_POLICY_SSL, chainCtx, para, &status)
-	if err != nil {
-		return pkerr.NewErrNative(err)
+	nativeError = syscall.CertVerifyCertificateChainPolicy(syscall.CERT_CHAIN_POLICY_SSL, chainCtx, para, &status)
+	if nativeError != nil {
+		return pkerr.NewErrNative(nativeError)
 	}
 
 	// TODO(mkrautz): use the lChainIndex and lElementIndex fields
@@ -249,9 +249,9 @@ func (c *Certificate) systemVerify(opts *VerifyOptions) (chains [][]*Certificate
 
 	// CertGetCertificateChain will traverse Windows's root stores in an attempt to build a verified certificate chain
 	var topCtx *syscall.CertChainContext
-	errNative := syscall.CertGetCertificateChain(syscall.Handle(0), storeCtx, verifyTime, storeCtx.Store, para, CERT_CHAIN_RETURN_LOWER_QUALITY_CONTEXTS, 0, &topCtx)
-	if errNative != nil {
-		return nil, pkerr.NewErrNative(errNative)
+	nativeError := syscall.CertGetCertificateChain(syscall.Handle(0), storeCtx, verifyTime, storeCtx.Store, para, CERT_CHAIN_RETURN_LOWER_QUALITY_CONTEXTS, 0, &topCtx)
+	if nativeError != nil {
+		return nil, pkerr.NewErrNative(nativeError)
 	}
 	defer syscall.CertFreeCertificateChain(topCtx)
 

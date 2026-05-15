@@ -8,7 +8,7 @@ import (
 	"crypto/ecdsa"
 	"errors"
 
-	"github.com/pduveau/gocert/internal/keys"
+	"github.com/pduveau/gocert/keys"
 	"github.com/pduveau/gocert/pkix"
 )
 

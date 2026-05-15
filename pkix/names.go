@@ -10,21 +10,53 @@ import (
 	"encoding/hex"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/pduveau/gocert/asn1"
+	"github.com/pduveau/gocert/pkerr"
+)
+
+var (
+	OidCountry            = asn1.ObjectIdentifier{2, 5, 4, 6}
+	OidOrganization       = asn1.ObjectIdentifier{2, 5, 4, 10}
+	OidOrganizationalUnit = asn1.ObjectIdentifier{2, 5, 4, 11}
+	OidCommonName         = asn1.ObjectIdentifier{2, 5, 4, 3}
+	OidSerialNumber       = asn1.ObjectIdentifier{2, 5, 4, 5}
+	OidLocality           = asn1.ObjectIdentifier{2, 5, 4, 7}
+	OidProvince           = asn1.ObjectIdentifier{2, 5, 4, 8}
+	OidStreetAddress      = asn1.ObjectIdentifier{2, 5, 4, 9}
+	OidPostalCode         = asn1.ObjectIdentifier{2, 5, 4, 17}
+	OidUniqueID           = asn1.ObjectIdentifier{0, 9, 2342, 19200300, 100, 1, 1}
+	OidDomainComponent    = asn1.ObjectIdentifier{0, 9, 2342, 19200300, 100, 1, 25}
 )
 
 var attributeTypeNames = map[string]string{
-	"2.5.4.6":  "C",
-	"2.5.4.10": "O",
-	"2.5.4.11": "OU",
-	"2.5.4.3":  "CN",
-	"2.5.4.5":  "SERIALNUMBER",
-	"2.5.4.7":  "L",
-	"2.5.4.8":  "ST",
-	"2.5.4.9":  "STREET",
-	"2.5.4.17": "POSTALCODE",
+	"2.5.4.6":                    "C",
+	"2.5.4.10":                   "O",
+	"2.5.4.11":                   "OU",
+	"2.5.4.3":                    "CN",
+	"2.5.4.5":                    "SERIALNUMBER",
+	"2.5.4.7":                    "L",
+	"2.5.4.8":                    "ST",
+	"2.5.4.9":                    "STREET",
+	"2.5.4.17":                   "POSTALCODE",
+	"0.9.2342.19200300.100.1.1":  "UID",
+	"0.9.2342.19200300.100.1.25": "DC",
+}
+
+var attributeTypeOIDS = map[string]asn1.ObjectIdentifier{
+	"C":            OidCountry,
+	"O":            OidOrganization,
+	"OU":           OidOrganizationalUnit,
+	"CN":           OidCommonName,
+	"SERIALNUMBER": OidSerialNumber,
+	"L":            OidLocality,
+	"ST":           OidProvince,
+	"STREET":       OidStreetAddress,
+	"POSTALCODE":   OidPostalCode,
+	"UID":          OidUniqueID,
+	"DC":           OidDomainComponent,
 }
 
 func extendedTypeToString(v any) string {
@@ -123,12 +155,121 @@ func (r RDNSequence) String() string {
 					escaped = append(escaped, c)
 				}
 			}
-
 			s += typeName + "=" + string(escaped)
 		}
 	}
-
 	return s
+}
+
+func mkRDN(isoid bool, typeName string, value []rune) (*AttributeTypeAndValue, pkerr.Kerror) {
+	rdn := AttributeTypeAndValue{}
+
+	if isoid {
+		rdn.Type = asn1.ObjectIdentifier{}
+		rdn.Value = ""
+		t := strings.Split(typeName, ".")
+		for _, v := range t {
+			n, err := strconv.ParseInt(v, 10, 32)
+			if err != nil {
+				return nil, pkerr.NewErrParsingOid("parsing typeName '%s' with err: %v", typeName, err)
+			}
+			rdn.Type = append(rdn.Type, int(n))
+		}
+		b, err := hex.DecodeString(string(value))
+		if err == nil {
+			b, err = asn1.Unmarshal(b, &rdn.Value)
+			if err != nil || len(b) > 0 {
+				return nil, pkerr.NewErrDecodeHexValue(typeName, string(value), err)
+			}
+		} else {
+			return nil, pkerr.NewErrDecodeHexValue(typeName, string(value), err)
+		}
+		isoid = false
+	} else {
+		var ok bool
+		rdn.Type, ok = attributeTypeOIDS[strings.ToUpper(typeName)]
+		rdn.Value = string(value)
+		if !ok {
+			return nil, pkerr.NewErrParsingOid("unknown typeName '%s'", typeName)
+		}
+	}
+
+	return &rdn, nil
+}
+
+func (r *RDNSequence) Parse(in string) pkerr.Kerror {
+	var rdns RDNSequence
+	rdns = make([]RelativeDistinguishedNameSET, 1)
+	nrdns := 0
+
+	escaped := false
+	text := make([]rune, 0)
+	isType := true
+	typeName := ""
+	isoid := false
+	lastEqual := false
+	for _, c := range in {
+		if escaped {
+			text = append(text, c)
+			escaped = false
+			continue
+		}
+		if lastEqual {
+			lastEqual = false
+			if c == '#' {
+				isoid = true
+				continue
+			}
+		}
+
+		switch c {
+		case '\\':
+			escaped = true
+			continue
+		case '=':
+			if isType {
+				typeName = string(text)
+				text = make([]rune, 0)
+				isType = false
+				lastEqual = true
+			} else {
+				text = append(text, c)
+			}
+			continue
+		case '+':
+		case ',':
+		default:
+			text = append(text, c)
+			continue
+		}
+
+		rdn, err := mkRDN(isoid, typeName, text)
+		if err != nil {
+			return err
+		}
+
+		switch c {
+		case '+':
+			rdns[nrdns] = append(rdns[nrdns], *rdn)
+		case ',':
+			rdns[nrdns] = append(rdns[nrdns], *rdn)
+			rdns = append(rdns, make([]AttributeTypeAndValue, 0))
+			nrdns++
+		}
+
+		text = make([]rune, 0)
+		isType = true
+		isoid = false
+	}
+
+	rdn, err := mkRDN(isoid, typeName, text)
+	if err != nil {
+		return err
+	}
+	rdns[nrdns] = append(rdns[nrdns], *rdn)
+
+	*r = rdns
+	return nil
 }
 
 // Name represents an X.509 distinguished name. This only includes the common
@@ -176,7 +317,6 @@ func (n *Name) setField(t asn1.ObjectIdentifier, value string) {
 			}
 		}
 	}
-
 }
 
 // FillFromRDNSequence populates n from the provided [RDNSequence].
@@ -199,20 +339,6 @@ func (n *Name) FillFromRDNSequence(rdns *RDNSequence) {
 		}
 	}
 }
-
-var (
-	OidCountry            = asn1.ObjectIdentifier{2, 5, 4, 6}
-	OidOrganization       = asn1.ObjectIdentifier{2, 5, 4, 10}
-	OidOrganizationalUnit = asn1.ObjectIdentifier{2, 5, 4, 11}
-	OidCommonName         = asn1.ObjectIdentifier{2, 5, 4, 3}
-	OidSerialNumber       = asn1.ObjectIdentifier{2, 5, 4, 5}
-	OidLocality           = asn1.ObjectIdentifier{2, 5, 4, 7}
-	OidProvince           = asn1.ObjectIdentifier{2, 5, 4, 8}
-	OidStreetAddress      = asn1.ObjectIdentifier{2, 5, 4, 9}
-	OidPostalCode         = asn1.ObjectIdentifier{2, 5, 4, 17}
-	OidUniqueID           = asn1.ObjectIdentifier{0, 9, 2342, 19200300, 100, 1, 1}
-	OidDomainComponent    = asn1.ObjectIdentifier{0, 9, 2342, 19200300, 100, 1, 25}
-)
 
 // ToRDNSequence converts n into a single [RDNSequence].
 func (n Name) ToRDNSequence() (ret RDNSequence) {

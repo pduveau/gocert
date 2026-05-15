@@ -396,3 +396,37 @@ func TestMarshalPrivateKey(t *testing.T) {
 		}
 	}
 }
+
+func TestMarshalPrivateKeyWithDefault(t *testing.T) {
+	password := []byte("password")
+	ecPrivateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey EC P-256 returned: %s", err)
+	}
+
+	// Test with default options (no option provided)
+	der, err := pkcs8.MarshalPKCS8EncryptedPrivateKey(ecPrivateKey, password)
+	if err != nil {
+		t.Fatalf("MarshalPKCS8EncryptedPrivateKey with no option (default) returned: %s", err)
+	}
+	decodedECPrivateKey, err := pkcs8.ParsePKCS8EncryptedPrivateKey(der, password)
+	if err != nil {
+		t.Fatalf("ParsePKCS8PrivateKey returned: %s", err)
+	}
+	if ecPrivateKey.D.Cmp(decodedECPrivateKey.(*ecdsa.PrivateKey).D) != 0 {
+		t.Fatalf("Decoded key does not match original key")
+	}
+
+	// Test with default options (nil option provided)
+	der, err = pkcs8.MarshalPKCS8EncryptedPrivateKey(ecPrivateKey, password, nil)
+	if err != nil {
+		t.Fatalf("MarshalPKCS8EncryptedPrivateKey with nil option (default) returned: %s", err)
+	}
+	decodedECPrivateKey, err = pkcs8.ParsePKCS8EncryptedPrivateKey(der, password)
+	if err != nil {
+		t.Fatalf("ParsePKCS8PrivateKey returned: %s", err)
+	}
+	if ecPrivateKey.D.Cmp(decodedECPrivateKey.(*ecdsa.PrivateKey).D) != 0 {
+		t.Fatalf("Decoded key does not match original key")
+	}
+}

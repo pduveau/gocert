@@ -61,7 +61,7 @@ func parseBool(bytes []byte) (ret bool, err pkerr.Kerror) {
 // INTEGER
 
 // checkInteger returns nil if the given bytes are a valid DER-encoded
-// INTEGER and an pkerr.Pkerror otherwise.
+// INTEGER and an pkerr.Kerror otherwise.
 func checkInteger(bytes []byte) pkerr.Kerror {
 	if len(bytes) == 0 {
 		return pkerr.NewErrAsn1Structural("empty integer")
@@ -316,25 +316,26 @@ func parseBase128Int(bytes []byte, initOffset int) (ret, offset int, err pkerr.K
 
 // UTCTime
 
-func parseUTCTime(bytes []byte) (time.Time, pkerr.Kerror) {
-	var errNative error
-	var ret time.Time
+func parseUTCTime(bytes []byte) (ret time.Time, perr pkerr.Kerror) {
+	var nativeError error
 	s := string(bytes)
 
 	formatStr := "0601021504Z0700"
-	ret, errNative = time.Parse(formatStr, s)
-	if errNative != nil {
+	ret, nativeError = time.Parse(formatStr, s)
+	if nativeError != nil {
 		formatStr = "060102150405Z0700"
-		ret, errNative = time.Parse(formatStr, s)
+		ret, nativeError = time.Parse(formatStr, s)
 	}
 
-	if errNative != nil {
-		return ret, pkerr.NewErrNative(errNative)
+	perr = pkerr.NewErrNative(nativeError)
+
+	if perr != nil {
+		return
 	}
 
 	if serialized := ret.Format(formatStr); serialized != s {
-		perr := pkerr.NewErrAsn1TimeSerialization(s, serialized)
-		return ret, perr
+		perr = pkerr.NewErrAsn1TimeSerialization(s, serialized)
+		return
 	}
 
 	if ret.Year() >= 2050 {
@@ -342,18 +343,18 @@ func parseUTCTime(bytes []byte) (time.Time, pkerr.Kerror) {
 		ret = ret.AddDate(-100, 0, 0)
 	}
 
-	return ret, nil
+	return
 }
 
 // parseGeneralizedTime parses the GeneralizedTime from the given byte slice
 // and returns the resulting time.
 func parseGeneralizedTime(bytes []byte) (ret time.Time, perr pkerr.Kerror) {
-	var errNative error
+	var nativeError error
 	const formatStr = "20060102150405.999999999Z0700"
 	s := string(bytes)
 
-	if ret, errNative = time.Parse(formatStr, s); errNative != nil {
-		perr = pkerr.NewErrNative(errNative)
+	if ret, nativeError = time.Parse(formatStr, s); nativeError != nil {
+		perr = pkerr.NewErrNative(nativeError)
 		return
 	}
 

@@ -181,6 +181,11 @@ const (
 	NumErrMsgHasNoSignedContent
 	NumErrNoSignerInformationFound
 	NumErrNoCallBackDefined
+	NumErrBERTagTooLong
+	NumErrBERTagNegativeLength
+	NumErrBERTagLeddingZero
+	NumErrInvalidBERFormat
+	NumErrBERLengthMoreThenData
 
 	// pkcs8
 	NumErrParsingRSAPrivateKeyInPKCS8
@@ -234,13 +239,15 @@ const (
 	NumErrUnsupporteEllipticCurve
 	NumErrRSAECDSAED25519
 	NumErrUnknownSignatureAlgorithm
-	NumErrOIDConvert
+	NumErrOIDConvertToAlgorithm
 	NumErrOIDInvalid
 	NumErrInsecureAlgorithm
 	NumErrInvalidSignature
 	NumErrUnsetKey
 	NumErrUnsupportedDigestForEcryptionAlgorithm
 	NumErrConvertEncryptionAlgorithmToOid
+	NumErrParsingOid
+	NumErrDecodeHexValue
 
 	// pool
 	NumErrNotAuthorizedToSign

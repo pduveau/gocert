@@ -323,7 +323,7 @@ func (sd *SignedData) addSignerChain(ee *x509.Certificate, pkey crypto.PrivateKe
 // applications.
 func (sd *SignedData) SignWithoutAttr(ee *x509.Certificate, pkey crypto.PrivateKey, config SignerInfoConfig) pkerr.Kerror {
 	var signature []byte
-	var errNative error
+	var nativeError error
 	sd.sd.DigestAlgorithmIdentifiers = append(sd.sd.DigestAlgorithmIdentifiers, pkix.AlgorithmIdentifier{Algorithm: sd.digestOid})
 	hash, err := pkix.GetHashForOID(sd.digestOid)
 	if err != nil {
@@ -338,9 +338,9 @@ func (sd *SignedData) SignWithoutAttr(ee *x509.Certificate, pkey crypto.PrivateK
 	if !ok {
 		return pkerr.NewErrPrivateKeyIsNotSigner()
 	}
-	signature, errNative = key.Sign(rand.Reader, sd.messageDigest, hash)
-	if errNative != nil {
-		return pkerr.NewErrNative(errNative)
+	signature, nativeError = key.Sign(rand.Reader, sd.messageDigest, hash)
+	if nativeError != nil {
+		return pkerr.NewErrNative(nativeError)
 	}
 	var ias issuerAndSerial
 	ias.SerialNumber = ee.SerialNumber
@@ -512,8 +512,8 @@ func signAttributes(attrs []attribute, pkey crypto.PrivateKey, digestAlg crypto.
 	if !ok {
 		return nil, pkerr.NewErrPrivateKeyNotASigner()
 	}
-	out, errNative := key.Sign(rand.Reader, hash, digestAlg)
-	return out, pkerr.NewErrNative(errNative)
+	out, nativeError := key.Sign(rand.Reader, hash, digestAlg)
+	return out, pkerr.NewErrNative(nativeError)
 }
 
 // concats and wraps the certificates in the RawValue structure

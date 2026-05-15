@@ -13,8 +13,8 @@ import (
 	"strings"
 
 	"github.com/pduveau/gocert/asn1"
-	"github.com/pduveau/gocert/internal/keys"
 	"github.com/pduveau/gocert/internal/pkixstring"
+	"github.com/pduveau/gocert/keys"
 	"github.com/pduveau/gocert/pkerr"
 	"github.com/pduveau/gocert/pkix"
 )
@@ -703,10 +703,11 @@ func parseCertificate(der []byte) (*Certificate, pkerr.Kerror) {
 		return nil, pkerr.NewErrMalformedSubjectPublicKey()
 	}
 	if cert.PublicKeyAlgorithm != pkix.UnknownPublicKeyAlgorithm {
-		cert.PublicKey, err = (&keys.PublicKeyInfo{
+		cert.PublicKeyInfo = &keys.PublicKeyInfo{
 			Algorithm: pkAI,
 			PublicKey: spk,
-		}).ParsePublicKey()
+		}
+		cert.PublicKey, err = cert.PublicKeyInfo.ParsePublicKey()
 		if err != nil {
 			return nil, err
 		}

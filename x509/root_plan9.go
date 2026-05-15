@@ -17,21 +17,21 @@ var certFiles = []string{
 	"/sys/lib/tls/ca.pem",
 }
 
-func (c *Certificate) systemVerify(opts *VerifyOptions) (chains [][]*Certificate, err pkerr.Pkerror) {
+func (c *Certificate) systemVerify(_ *VerifyOptions) (chains [][]*Certificate, err pkerr.Kerror) {
 	return nil, nil
 }
 
-func loadSystemRoots() (*CertPool, pkerr.Pkerror) {
+func loadSystemRoots() (*CertPool, pkerr.Kerror) {
 	roots := NewCertPool()
-	var bestErr pkerr.Pkerror
+	var bestErr pkerr.Kerror
 	for _, file := range certFiles {
-		data, err := os.ReadFile(file)
-		if err == nil {
+		data, nativeError := os.ReadFile(file)
+		if nativeError == nil {
 			roots.AppendCertsFromPEM(data)
 			return roots, nil
 		}
-		if bestErr == nil || (os.IsNotExist(bestErr) && !os.IsNotExist(err)) {
-			bestErr = pkerr.NewBaseErrorFromNativeError(err)
+		if bestErr == nil || (os.IsNotExist(bestErr) && !os.IsNotExist(nativeError)) {
+			bestErr = pkerr.NewErrNative(nativeError)
 		}
 	}
 	if bestErr == nil {

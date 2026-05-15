@@ -18,6 +18,7 @@
 package pkcs12
 
 import (
+	"crypto"
 	"crypto/hmac"
 	"crypto/rand"
 	"hash"
@@ -304,7 +305,7 @@ func getSafeContents(p12Data, password []byte, expectedItemsMin int, expectedIte
 // private key shrouded with the key encryption algorithm.  The private key bag and
 // the end-entity certificate bag have the LocalKeyId attribute set to the SHA-1
 // fingerprint of the end-entity certificate.
-func Encode(pbmac1 bool, privateKey interface{}, certificate *x509.Certificate, caCerts []*x509.Certificate, password string) (pfxData []byte, err pkerr.Kerror) {
+func Encode(pbmac1 bool, privateKey crypto.PrivateKey, certificate *x509.Certificate, caCerts []*x509.Certificate, password string) (pfxData []byte, err pkerr.Kerror) {
 	if password == "" {
 		return nil, pkerr.NewErrPasswordMissing()
 	}
@@ -404,8 +405,8 @@ func Encode(pbmac1 bool, privateKey interface{}, certificate *x509.Certificate, 
 	} else {
 		macSalt := make([]byte, SaltLen)
 
-		if _, errNative := rand.Read(macSalt); errNative != nil {
-			return nil, pkerr.NewErrNative(errNative)
+		if _, nativeError := rand.Read(macSalt); nativeError != nil {
+			return nil, pkerr.NewErrNative(nativeError)
 		}
 		pfx.MacData.MacSalt = macSalt
 		pfx.MacData.Iterations = Iterations
@@ -516,8 +517,8 @@ func EncodeTrustStoreEntries(entries []TrustStoreEntry, password string) (pfxDat
 	pfx.MacData.Mac.Algorithm.Algorithm = oidSHA256
 
 	pfx.MacData.MacSalt = make([]byte, SaltLen)
-	if _, errNative := rand.Read(pfx.MacData.MacSalt); errNative != nil {
-		return nil, pkerr.NewErrNative(errNative)
+	if _, nativeError := rand.Read(pfx.MacData.MacSalt); nativeError != nil {
+		return nil, pkerr.NewErrNative(nativeError)
 	}
 	pfx.MacData.Iterations = Iterations
 

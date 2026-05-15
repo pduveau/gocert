@@ -41,23 +41,23 @@ func (c cipherWithBlock) Decrypt(key, iv, ciphertext []byte) ([]byte, pkerr.Kerr
 }
 
 func cbcEncrypt(key, iv, plaintext []byte) ([]byte, pkerr.Kerror) {
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, pkerr.NewErrNative(err)
+	block, nativeError := aes.NewCipher(key)
+	if nativeError != nil {
+		return nil, pkerr.NewErrNative(nativeError)
 	}
 	mode := cipher.NewCBCEncrypter(block, iv)
-	ciphertext, err := intcrypto.Pad(plaintext, aes.BlockSize)
-	if err != nil {
-		return nil, pkerr.NewErrNative(err)
+	ciphertext, nativeError := intcrypto.Pad(plaintext, aes.BlockSize)
+	if nativeError != nil {
+		return nil, pkerr.NewErrNative(nativeError)
 	}
 	mode.CryptBlocks(ciphertext, ciphertext)
 	return ciphertext, nil
 }
 
 func cbcDecrypt(key, iv, ciphertext []byte) ([]byte, pkerr.Kerror) {
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, pkerr.NewErrNative(err)
+	block, nativeError := aes.NewCipher(key)
+	if nativeError != nil {
+		return nil, pkerr.NewErrNative(nativeError)
 	}
 	mode := cipher.NewCBCDecrypter(block, iv)
 	plaintext := make([]byte, len(ciphertext))

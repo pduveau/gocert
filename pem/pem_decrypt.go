@@ -126,9 +126,9 @@ func DecryptPEMBlock(b *pem.Block, password []byte) ([]byte, pkerr.Kerror) {
 	if ciph == nil {
 		return nil, pkerr.NewErrUnknownEncryptionMode()
 	}
-	iv, err := hex.DecodeString(hexIV)
-	if err != nil {
-		return nil, pkerr.NewErrNative(err)
+	iv, nativeError := hex.DecodeString(hexIV)
+	if nativeError != nil {
+		return nil, pkerr.NewErrNative(nativeError)
 	}
 	if len(iv) != ciph.blockSize {
 		return nil, pkerr.NewErrIncorrectIVSize()
@@ -137,9 +137,9 @@ func DecryptPEMBlock(b *pem.Block, password []byte) ([]byte, pkerr.Kerror) {
 	// Based on the OpenSSL implementation. The salt is the first 8 bytes
 	// of the initialization vector.
 	key := ciph.deriveKey(password, iv[:8])
-	block, err := ciph.cipherFunc(key)
-	if err != nil {
-		return nil, pkerr.NewErrNative(err)
+	block, nativeError := ciph.cipherFunc(key)
+	if nativeError != nil {
+		return nil, pkerr.NewErrNative(nativeError)
 	}
 
 	if len(b.Bytes)%block.BlockSize() != 0 {
@@ -194,9 +194,9 @@ func EncryptPEMBlock(rand io.Reader, blockType string, data, password []byte, al
 	// The salt is the first 8 bytes of the initialization vector,
 	// matching the key derivation in DecryptPEMBlock.
 	key := ciph.deriveKey(password, iv[:8])
-	block, err := ciph.cipherFunc(key)
-	if err != nil {
-		return nil, pkerr.NewErrNative(err)
+	block, nativeError := ciph.cipherFunc(key)
+	if nativeError != nil {
+		return nil, pkerr.NewErrNative(nativeError)
 	}
 	enc := cipher.NewCBCEncrypter(block, iv)
 	pad := ciph.blockSize - len(data)%ciph.blockSize

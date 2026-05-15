@@ -116,7 +116,7 @@ const (
 
 )
 
-	func (bag *safeBag) convertBagPem(password []byte) (*pem.Block, pkerr.Pkerror) {
+	func (bag *safeBag) convertBagPem(password []byte) (*pem.Block, pkerr.Kerror) {
 		block := &pem.Block{
 			Headers: make(map[string]string),
 		}

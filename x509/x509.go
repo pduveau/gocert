@@ -23,7 +23,11 @@ package x509
 import (
 	"bytes"
 	"crypto"
+	"crypto/ecdh"
+	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
 	"io"
 	"math/big"
@@ -38,8 +42,8 @@ import (
 	_ "crypto/sha512"
 
 	"github.com/pduveau/gocert/asn1"
-	"github.com/pduveau/gocert/internal/keys"
 	"github.com/pduveau/gocert/internal/pkixstring"
+	"github.com/pduveau/gocert/keys"
 	"github.com/pduveau/gocert/pkerr"
 	"github.com/pduveau/gocert/pkix"
 )
@@ -78,7 +82,7 @@ func ParsePKIXPublicKey(derBytes []byte) (pub any, err pkerr.Kerror) {
 //
 // The following key types are currently supported: *[rsa.PublicKey],
 // *[ecdsa.PublicKey], [ed25519.PublicKey] (not a pointer), and *[ecdh.PublicKey].
-// Unsupported key types result in an pkerr.Pkerror.
+// Unsupported key types result in an pkerr.Kerror.
 //
 // This kind of key is commonly encoded in PEM blocks of type "PUBLIC KEY".
 func MarshalPKIXPublicKey(pub any) ([]byte, pkerr.Kerror) {
@@ -246,11 +250,11 @@ func oidFromExtKeyUsage(eku ExtKeyUsage) (oid asn1.ObjectIdentifier, ok bool) {
 func (eku ExtKeyUsage) OID() OID {
 	asn1OID, ok := oidFromExtKeyUsage(eku)
 	if !ok {
-		panic("x509: internal pkerr.Pkerror: known ExtKeyUsage has no OID")
+		panic("x509: internal error: known ExtKeyUsage has no OID")
 	}
 	oid, err := OIDFromASN1OID(asn1OID)
 	if err != nil {
-		panic("x509: internal pkerr.Pkerror: known ExtKeyUsage has invalid OID")
+		panic("x509: internal error: known ExtKeyUsage has invalid OID")
 	}
 	return oid
 }
@@ -313,6 +317,7 @@ type Certificate struct {
 	SignatureAlgorithm pkix.SignatureAlgorithm
 
 	PublicKeyAlgorithm pkix.PublicKeyAlgorithm
+	PublicKeyInfo      *keys.PublicKeyInfo
 	PublicKey          any
 
 	Version             int
@@ -474,6 +479,20 @@ type PolicyMapping struct {
 	// SubjectDomainPolicy contains a OID the issuing certificate considers
 	// equivalent to IssuerDomainPolicy in the subject certificate.
 	SubjectDomainPolicy OID
+}
+
+func (p *Certificate) PublicEqual(pk crypto.PublicKey) bool {
+	switch k := p.PublicKey.(type) {
+	case *rsa.PublicKey:
+		return k.Equal(pk)
+	case *ecdh.PublicKey:
+		return k.Equal(pk)
+	case *ecdsa.PublicKey:
+		return k.Equal(pk)
+	case ed25519.PublicKey:
+		return k.Equal(pk)
+	}
+	return false
 }
 
 func (c *Certificate) Equal(other *Certificate) bool {
@@ -850,8 +869,8 @@ func buildCertExtensions(template *Certificate, subjectIsEmpty bool, authorityKe
 				})
 			}
 
-			data, errNative := b.Bytes()
-			return data, pkerr.NewErrNative(errNative)
+			data, nativeError := b.Bytes()
+			return data, pkerr.NewErrNative(nativeError)
 		}
 
 		permitted, err := serialiseConstraints(template.PermittedDNSDomains, template.PermittedIPRanges, template.PermittedEmailAddresses, template.PermittedURIDomains)
@@ -879,10 +898,10 @@ func buildCertExtensions(template *Certificate, subjectIsEmpty bool, authorityKe
 			}
 		})
 
-		var errNative error
-		ret[n].Value, errNative = b.Bytes()
-		if errNative != nil {
-			return nil, pkerr.NewErrNative(errNative)
+		var nativeError error
+		ret[n].Value, nativeError = b.Bytes()
+		if nativeError != nil {
+			return nil, pkerr.NewErrNative(nativeError)
 		}
 		n++
 	}
@@ -985,9 +1004,9 @@ func marshalCertificatePolicies(policies []OID) (pkix.Extension, pkerr.Kerror) {
 		}
 	})
 
-	var err error
-	ext.Value, err = b.Bytes()
-	return ext, pkerr.NewErrNative(err)
+	var nativeError error
+	ext.Value, nativeError = b.Bytes()
+	return ext, pkerr.NewErrNative(nativeError)
 }
 
 func (cert *Certificate) SubjectBytes() ([]byte, pkerr.Kerror) {
@@ -1070,8 +1089,8 @@ func (parent *Certificate) SignCertificate(template *Certificate, pub, priv any)
 		// is not provided. The serial number must be positive and at most 20
 		// octets *when encoded*.
 		serialBytes := make([]byte, 20)
-		if _, err := io.ReadFull(rand.Reader, serialBytes); err != nil {
-			return nil, pkerr.NewErrNative(err)
+		if _, nativeError := io.ReadFull(rand.Reader, serialBytes); nativeError != nil {
+			return nil, pkerr.NewErrNative(nativeError)
 		}
 		// If the top bit is set, the serial will be padded with a leading zero
 		// byte during encoding, so that it's not interpreted as a negative
@@ -1159,7 +1178,7 @@ func (parent *Certificate) SignCertificate(template *Certificate, pub, priv any)
 		Issuer:             asn1.RawValue{FullBytes: asn1Issuer},
 		Validity:           validity{template.NotBefore.UTC(), template.NotAfter.UTC()},
 		Subject:            asn1.RawValue{FullBytes: asn1Subject},
-		PublicKey:          keys.PublicKeyInfo{Raw: nil, Algorithm: publicKeyAlgorithm, PublicKey: encodedPublicKey},
+		PublicKey:          keys.PublicKeyInfo{ /*Raw: nil, */ Algorithm: publicKeyAlgorithm, PublicKey: encodedPublicKey},
 		Extensions:         extensions,
 	}
 

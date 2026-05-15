@@ -19,6 +19,7 @@ func NewDefaultOpts() *Opts {
 		Cipher:    NewDefaultCipher(),
 		KDFParams: NewDefaultKDF(),
 		Oid:       pkix.OidPBES2,
+		SaltSize:  16,
 	}
 }
 
@@ -141,28 +142,28 @@ func ParseEncryptedPKCS5(encryptionAlgorithm pkix.AlgorithmIdentifier, encrypted
 	return decryptedData, nil
 }
 
-func MakePBES2(options ...*Opts) (ai *pkix.AlgorithmIdentifier, iv []byte, pbes *Pbes2Params, err pkerr.Kerror) {
+func MakePBES2(options ...*Opts) (ai *pkix.AlgorithmIdentifier, iv []byte, pbes *Pbes2Params, perr pkerr.Kerror) {
 	opts := NewDefaultOpts()
-	if len(options) > 0 || options[0] != nil {
+	if len(options) > 0 && options[0] != nil {
 		opts = options[0]
 	}
 
 	iv = make([]byte, opts.Cipher.IVSize())
-	_, errNative := rand.Read(iv)
-	if errNative != nil {
-		err = pkerr.NewErrNative(errNative)
+	_, nativeError := rand.Read(iv)
+	perr = pkerr.NewErrNative(nativeError)
+	if perr != nil {
 		return
 	}
-	err = opts.KDFParams.MakeSalt(opts.SaltSize)
-	if err != nil {
+	perr = opts.KDFParams.MakeSalt(opts.SaltSize)
+	if perr != nil {
 		return
 	}
-	marshalledParams, err := asn1.Marshal(opts.KDFParams.Param())
-	if err != nil {
+	marshalledParams, perr := asn1.Marshal(opts.KDFParams.Param())
+	if perr != nil {
 		return
 	}
-	marshalledIV, err := asn1.Marshal(iv)
-	if err != nil {
+	marshalledIV, perr := asn1.Marshal(iv)
+	if perr != nil {
 		return
 	}
 	pbes = &Pbes2Params{
@@ -175,8 +176,8 @@ func MakePBES2(options ...*Opts) (ai *pkix.AlgorithmIdentifier, iv []byte, pbes 
 			Parameters: asn1.RawValue{FullBytes: marshalledParams},
 		},
 	}
-	marshalledEncryptionAlgorithmParams, err := asn1.Marshal(*pbes)
-	if err != nil {
+	marshalledEncryptionAlgorithmParams, perr := asn1.Marshal(*pbes)
+	if perr != nil {
 		return
 	}
 
@@ -202,11 +203,11 @@ func MarshalEncryptedPKCS5(data []byte, password []byte, options ...*Opts) (encr
 	}
 
 	opts := NewDefaultOpts()
-	if len(options) > 0 || options[0] != nil {
+	if len(options) > 0 && options[0] != nil {
 		opts = options[0]
 	}
 
-	encryptionAlgorithm, iv, _, err = MakePBES2(options...)
+	encryptionAlgorithm, iv, _, err = MakePBES2(opts)
 
 	key, err = opts.KDFParams.DeriveKey(password, opts.Cipher.KeySize())
 	if err != nil {

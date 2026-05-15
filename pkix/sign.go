@@ -49,16 +49,13 @@ func (algo SignatureAlgorithm) CheckSignature(signed, signature []byte, publicKe
 		if pubKeyAlgo != RSA {
 			return pkerr.NewErrSignaturePublicKeyAlgoMismatch(pubKeyAlgo.String(), pub)
 		}
-		var errNative error
+		var nativeError error
 		if algo.IsRSAPSS() {
-			errNative = rsa.VerifyPSS(pub, hashType, signed, signature, &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash})
+			nativeError = rsa.VerifyPSS(pub, hashType, signed, signature, &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash})
 		} else {
-			errNative = rsa.VerifyPKCS1v15(pub, hashType, signed, signature)
+			nativeError = rsa.VerifyPKCS1v15(pub, hashType, signed, signature)
 		}
-		if errNative == nil {
-			return nil
-		}
-		return pkerr.NewErrNative(errNative)
+		return pkerr.NewErrNative(nativeError)
 	case *ecdsa.PublicKey:
 		if pubKeyAlgo != ECDSA {
 			return pkerr.NewErrSignaturePublicKeyAlgoMismatch(pubKeyAlgo.String(), pub)
@@ -90,9 +87,9 @@ func (sigAlg SignatureAlgorithm) Sign(data []byte, key crypto.Signer) ([]byte, p
 		}
 	}
 
-	signature, err := crypto.SignMessage(key, rand.Reader, data, signerOpts)
-	if err != nil {
-		return nil, pkerr.NewErrNative(err)
+	signature, nativeError := crypto.SignMessage(key, rand.Reader, data, signerOpts)
+	if nativeError != nil {
+		return nil, pkerr.NewErrNative(nativeError)
 	}
 
 	// Check the signature to ensure the crypto.Signer behaved correctly.
