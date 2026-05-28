@@ -36,6 +36,16 @@ func (bag *safeBag) hasAttribute(id asn1.ObjectIdentifier) bool {
 	return false
 }
 
+func (bag *safeBag) getFriendlyName() string {
+	for _, attr := range bag.Attributes {
+		if attr.Id.Equal(oidFriendlyName) {
+			_, val, _ := convertAttribute(&attr)
+			return val
+		}
+	}
+	return ""
+}
+
 const LOCALKEYID = 0x01
 const JAVATRUSTSTORE = 0x02
 

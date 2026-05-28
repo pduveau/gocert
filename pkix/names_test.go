@@ -188,6 +188,18 @@ func TestRDNSequenceString(t *testing.T) {
 	}
 }
 
+func TestRDNInser(t *testing.T) {
+	p := pkix.Name{}.AppendRDN(pkix.OidOrganizationalUnit, "Foo").
+		AppendRDN(pkix.OidOrganization, "Bar").
+		AppendRDN(pkix.OidCountry, "US")
+
+	p = p.InsertRDN(pkix.OidCommonName, "test")
+
+	if p.String() != "CN=test,OU=Foo,O=Bar,C=US" {
+		t.Errorf("InsertDN = \n%s\n, want \nCN=test,OU=Foo,O=Bar,C=Us", p.String())
+	}
+}
+
 func TestParse2RDNSequence(t *testing.T) {
 	for i, test := range testsRDNStrings {
 		rdns := pkix.RDNSequence{}

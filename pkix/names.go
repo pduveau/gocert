@@ -368,3 +368,19 @@ func (n Name) AppendRDN(oid asn1.ObjectIdentifier, value any) Name {
 	}
 	return n
 }
+
+func (n Name) InsertRDN(oid asn1.ObjectIdentifier, value any) Name {
+	var str string
+	if v, ok := value.(string); ok {
+		value = prefixToType(v)
+	}
+	str = extendedTypeToString(value)
+	n.Names = append([]AttributeTypeAndValue{{
+		Type:  oid,
+		Value: value,
+	}}, n.Names...)
+	if str != "" {
+		n.setField(oid, str)
+	}
+	return n
+}

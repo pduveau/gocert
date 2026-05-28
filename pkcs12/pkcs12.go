@@ -102,14 +102,19 @@ func Decode(pfxData []byte, password string) (privateKey interface{}, certificat
 // be the leaf certificate, and subsequent certificates, if any, are assumed to
 // comprise the CA certificate chain.
 func DecodeChain(pfxData []byte, password string) (privateKey interface{}, certificate *x509.Certificate, caCerts []*x509.Certificate, err pkerr.Kerror) {
+	privateKey, _, certificate, caCerts, err = DecodeChainWithFriendlyName(pfxData, password)
+	return privateKey, certificate, caCerts, err
+}
+
+func DecodeChainWithFriendlyName(pfxData []byte, password string) (privateKey interface{}, friendly string, certificate *x509.Certificate, caCerts []*x509.Certificate, err pkerr.Kerror) {
 	encodedPassword, err := bmpStringZeroTerminated(password)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, "", nil, nil, err
 	}
 
 	bags, encodedPassword, err := getSafeContents(pfxData, encodedPassword, 1, 2)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, "", nil, nil, err
 	}
 
 	for _, bag := range bags {
@@ -117,18 +122,19 @@ func DecodeChain(pfxData []byte, password string) (privateKey interface{}, certi
 		case bag.Id.Equal(oidCertBag):
 			certsData, err := decodeCertBag(bag.Value.Bytes)
 			if err != nil {
-				return nil, nil, nil, err
+				return nil, "", nil, nil, err
 			}
 			certs, err := x509.ParseCertificates(certsData)
 			if err != nil {
-				return nil, nil, nil, err
+				return nil, "", nil, nil, err
 			}
 			if len(certs) != 1 {
 				err = pkerr.NewErrOnlyOneCertificateInCertBag()
-				return nil, nil, nil, err
+				return nil, "", nil, nil, err
 			}
 			if certificate == nil {
 				certificate = certs[0]
+				friendly = bag.getFriendlyName()
 			} else {
 				caCerts = append(caCerts, certs[0])
 			}
@@ -136,34 +142,34 @@ func DecodeChain(pfxData []byte, password string) (privateKey interface{}, certi
 		case bag.Id.Equal(oidKeyBag):
 			if privateKey != nil {
 				err = pkerr.NewErrExactlyOneKeyExpected()
-				return nil, nil, nil, err
+				return nil, "", nil, nil, err
 			}
 
 			if privateKey, err = pkcs8.ParsePKCS8PrivateKey(bag.Value.Bytes); err != nil {
-				return nil, nil, nil, err
+				return nil, "", nil, nil, err
 			}
 		case bag.Id.Equal(oidPKCS8ShroundedKeyBag):
 			if privateKey != nil {
 				err = pkerr.NewErrExactlyOneKeyExpected()
-				return nil, nil, nil, err
+				return nil, "", nil, nil, err
 			}
 
 			originalPassword, err := decodeBMPString(encodedPassword)
 			if err != nil {
-				return nil, nil, nil, err
+				return nil, "", nil, nil, err
 			}
 			privateKey, err = pkcs8.ParsePKCS8EncryptedPrivateKey(bag.Value.Bytes, []byte(originalPassword))
 			if err != nil {
-				return nil, nil, nil, err
+				return nil, "", nil, nil, err
 			}
 		}
 	}
 
 	if certificate == nil {
-		return nil, nil, nil, pkerr.NewErrCertificateMissing()
+		return nil, "", nil, nil, pkerr.NewErrCertificateMissing()
 	}
 	if privateKey == nil {
-		return nil, nil, nil, pkerr.NewErrKeyMissing()
+		return nil, "", nil, nil, pkerr.NewErrKeyMissing()
 	}
 
 	return
@@ -306,6 +312,11 @@ func getSafeContents(p12Data, password []byte, expectedItemsMin int, expectedIte
 // the end-entity certificate bag have the LocalKeyId attribute set to the SHA-1
 // fingerprint of the end-entity certificate.
 func Encode(pbmac1 bool, privateKey crypto.PrivateKey, certificate *x509.Certificate, caCerts []*x509.Certificate, password string) (pfxData []byte, err pkerr.Kerror) {
+	return EncodeWithFrendlyName(pbmac1, privateKey, "", certificate, caCerts, password)
+}
+
+// same as Encode adding the friendly name to the certificate
+func EncodeWithFrendlyName(pbmac1 bool, privateKey crypto.PrivateKey, friendlyName string, certificate *x509.Certificate, caCerts []*x509.Certificate, password string) (pfxData []byte, err pkerr.Kerror) {
 	if password == "" {
 		return nil, pkerr.NewErrPasswordMissing()
 	}
@@ -321,7 +332,7 @@ func Encode(pbmac1 bool, privateKey crypto.PrivateKey, certificate *x509.Certifi
 	var certBags []safeBag
 	var certBag safeBag
 
-	localKeyIdAttr, err := certBag.makeCertBag(certificate.Raw, LOCALKEYID, "")
+	localKeyIdAttr, err := certBag.makeCertBag(certificate.Raw, LOCALKEYID, friendlyName)
 	if err != nil {
 		return nil, err
 	} else {
